@@ -1,0 +1,26 @@
+.body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  user-select: text;
+}
+
+.body h3 {
+  margin: 0 0 8px;
+}
+
+.body p {
+  margin: 4px 0;
+  color: var(--dim);
+}
+
+.body ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.log {
+  display: flex;
+  height: 50vh;
+}

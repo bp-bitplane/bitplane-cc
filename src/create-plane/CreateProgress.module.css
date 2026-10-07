@@ -1,0 +1,73 @@
+.progress {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 28px;
+  min-height: 0;
+  user-select: text;
+}
+
+.progress h2 {
+  margin: 0;
+}
+
+.progress p {
+  margin: 0;
+  color: var(--dim);
+}
+
+.phases {
+  display: flex;
+  gap: 18px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--faint);
+}
+
+.done {
+  color: var(--dim);
+}
+
+.current {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.log {
+  flex: 1;
+  min-height: 120px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: 12px / 1.45 var(--mono);
+  color: var(--dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.envelope {
+  color: var(--danger);
+}
+
+.envelope p {
+  color: var(--danger);
+}
+
+.envelope ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.envelope .remedy {
+  color: var(--text);
+}

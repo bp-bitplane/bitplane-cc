@@ -1,0 +1,63 @@
+#!/bin/sh
+# A fake bp for integration tests. Behaviour comes from FAKE_BP_* variables;
+# every call appends its arguments to $FAKE_BP_LOG when that is set.
+
+[ -n "$FAKE_BP_LOG" ] && printf '%s\n' "$*" >> "$FAKE_BP_LOG"
+
+planes_dir=""
+id=""
+prev=""
+for arg in "$@"; do
+  case "$prev" in
+    --planes-dir) planes_dir="$arg" ;;
+    --id) id="$arg" ;;
+  esac
+  prev="$arg"
+done
+
+envelope() { # error code message
+  printf '{"error":"%s","code":%s,"message":"%s","problems":[{"subject":null,"message":"detail"}],"remedy":"try again"}\n' "$1" "$2" "$3" >&2
+}
+
+case "$1" in
+  --version)
+    echo "${FAKE_BP_VERSION:-bp 0.1.0}"
+    ;;
+  list)
+    if [ -n "$FAKE_BP_LIST_EXIT" ] && [ "$FAKE_BP_LIST_EXIT" != 0 ] && [ "$FAKE_BP_LIST_EXIT" != 3 ]; then
+      envelope git_unusable "$FAKE_BP_LIST_EXIT" "git is too old"
+      exit "$FAKE_BP_LIST_EXIT"
+    fi
+    if [ -n "$FAKE_BP_LIST" ]; then printf '%s\n' "$FAKE_BP_LIST"; else echo '{"action":"plane_list","planes":[]}'; fi
+    exit "${FAKE_BP_LIST_EXIT:-0}"
+    ;;
+  project)
+    if [ -n "$FAKE_BP_PROJECTS" ]; then printf '%s\n' "$FAKE_BP_PROJECTS"; else echo '{"action":"project_list","projects":[]}'; fi
+    ;;
+  create)
+    dir="$planes_dir/$id"
+    case "$FAKE_BP_CREATE" in
+      success)
+        echo "fetching" >&2
+        mkdir -p "$dir/.bitplane" && : > "$dir/plane.toml"
+        printf '{"action":"plane_create","id":"%s","directory":"%s","members":[],"interrupted":false,"remnant":false,"scripts":[]}\n' "$id" "$dir"
+        ;;
+      script_failed)
+        mkdir -p "$dir/.bitplane" && : > "$dir/plane.toml"
+        printf 'installing deps\nno newline at the end' >&2
+        envelope script_failed 1 "a post-create script failed"
+        exit 1
+        ;;
+      in_use)
+        envelope plane_id_in_use 2 "there is already a plane called $id"
+        exit 2
+        ;;
+      hang)
+        trap 'printf "{\"action\":\"plane_create\",\"id\":\"%s\",\"directory\":\"%s\",\"members\":[],\"interrupted\":true,\"remnant\":false,\"scripts\":[]}\n" "$id" "$dir"; exit 130' INT
+        mkdir -p "$dir/.bitplane" && : > "$dir/.bitplane/incomplete"
+        echo "adding worktrees" >&2
+        while :; do sleep 0.05; done
+        ;;
+    esac
+    ;;
+esac

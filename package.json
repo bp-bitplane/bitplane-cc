@@ -1,0 +1,50 @@
+{
+  "name": "bitplane-cc",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@12.10.1",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build --no-sign",
+    "vite:dev": "vite",
+    "vite:build": "tsc && vite build",
+    "typecheck": "tsc",
+    "lint": "biome check . && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "format": "biome format --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
+    "format:check": "biome format . && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
+    "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.1",
+    "@tauri-apps/plugin-dialog": "2.8.1",
+    "@wterm/core": "0.5.4",
+    "@wterm/dom": "0.5.4",
+    "@wterm/ghostty": "0.5.4",
+    "@wterm/react": "0.5.4",
+    "lucide-react": "1.52.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@tauri-apps/cli": "2.12.1",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/node": "24.19.1",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.1",
+    "@vitejs/plugin-react": "5.2.0",
+    "jsdom": "27.4.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,0 +1,182 @@
+.dialog {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dialog h3 {
+  margin: 0 0 10px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab,
+.activeTab {
+  border-radius: 0;
+  padding: 6px 10px;
+  border-bottom: 2px solid transparent;
+  color: var(--dim);
+}
+
+.activeTab {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form p {
+  margin: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.fieldset legend {
+  padding: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.projects {
+  display: flex;
+  flex-direction: column;
+  max-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 0;
+}
+
+.projects p {
+  padding: 4px 10px;
+}
+
+.project {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 10px;
+  font: 12px var(--mono);
+}
+
+.project:has(input:disabled) {
+  color: var(--faint);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-radius: 12px;
+  font: 12px var(--mono);
+  max-width: 100%;
+}
+
+.chipName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipBranch {
+  width: 110px;
+  padding: 1px 6px;
+  font: 11px var(--mono);
+  border-radius: 10px;
+}
+
+.addPath {
+  align-self: flex-start;
+  color: var(--accent);
+}
+
+.radios {
+  display: flex;
+  gap: 16px;
+}
+
+.radios label,
+.advanced label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.advanced summary {
+  cursor: pointer;
+  color: var(--dim);
+}
+
+.error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
+  border-radius: 6px;
+  user-select: text;
+}
+
+.failureLog {
+  display: flex;
+  height: 140px;
+}
