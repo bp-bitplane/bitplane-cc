@@ -23,3 +23,11 @@ _Avoid_: Session (when meaning the UI element)
 **Gone plane**:
 A plane that disappeared or was renamed while it still has open sessions; its sessions keep running.
 _Avoid_: Dead plane, orphan
+
+**Busy session**:
+A session whose terminal is running something other than its idle shell (e.g. Claude Code, an editor, a build); closing it asks first.
+_Avoid_: Active session, running session
+
+**Exited session**:
+A session whose shell ended with an error or never started; its tab stays open showing why, and can be restarted.
+_Avoid_: Dead session, crashed tab
