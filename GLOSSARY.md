@@ -24,6 +24,10 @@ _Avoid_: Session (when meaning the UI element)
 A plane that disappeared or was renamed while it still has open sessions; its sessions keep running.
 _Avoid_: Dead plane, orphan
 
+**Draft plane**:
+A folder in the planes directory that has no plane file yet; the app shows it and opens sessions in it like a plane, until `bp create --here` turns it into one.
+_Avoid_: Empty plane, pending plane
+
 **Busy session**:
 A session whose terminal is running something other than its idle shell (e.g. Claude Code, an editor, a build); closing it asks first.
 _Avoid_: Active session, running session
