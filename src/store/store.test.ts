@@ -17,6 +17,8 @@ import {
   cycleTab,
   goToPlane,
   goToTab,
+  loadSnapshot,
+  loadUiState,
   requestCloseSession,
   requestQuit,
   selectPlane,
@@ -259,12 +261,78 @@ describe("quitting", () => {
   });
 
   it("asks when sessions are busy or planes are being created", async () => {
-    const info = { busy: [{ planeId: "a", processName: "claude" }], creating: ["b"] };
+    const info = {
+      busy: [{ planeId: "a", processName: "vim", resumes: false, working: false }],
+      creating: ["b"],
+    };
     const backend = mockBackend({ quit_check: () => info });
     seed();
     await requestQuit();
     expect(backend.called("quit")).toHaveLength(0);
     expect(state().dialog).toEqual({ kind: "quit", info });
+  });
+
+  it("quits without asking when every busy session resumes", async () => {
+    const info = {
+      busy: [{ planeId: "a", processName: "claude", resumes: true, working: false }],
+      creating: [],
+    };
+    const backend = mockBackend({ quit_check: () => info });
+    seed();
+    await requestQuit();
+    expect(backend.called("quit")).toHaveLength(1);
+  });
+
+  it("asks when an agent is mid-turn", async () => {
+    const info = {
+      busy: [{ planeId: "a", processName: "claude", resumes: true, working: true }],
+      creating: [],
+    };
+    const backend = mockBackend({ quit_check: () => info });
+    seed();
+    await requestQuit();
+    expect(backend.called("quit")).toHaveLength(0);
+  });
+});
+
+describe("restoring", () => {
+  it("says which planes were skipped", () => {
+    seed();
+    loadSnapshot({
+      planes: planesModel([]),
+      sessions: [],
+      creates: [],
+      restoreSkipped: ["a", "b"],
+    });
+    expect(state().notice).toBe("Couldn't restore the sessions of a, b: the planes are gone.");
+  });
+
+  it("maps saved tabs back to the restored sessions by key", () => {
+    seed({
+      sessions: sessionsById(session(1, "alpha"), session(2, "alpha", { key: "k-two" })),
+      activeTab: { alpha: 1 },
+    });
+    loadUiState(
+      JSON.stringify({
+        selectedPlaneId: "alpha",
+        activeTab: { alpha: "k-two", beta: "k-unknown" },
+        collapsed: { beta: true },
+        fontSize: 99,
+      }),
+    );
+    expect(state().selectedPlaneId).toBe("alpha");
+    expect(state().activeTab).toEqual({ alpha: 2 });
+    expect(state().collapsed).toEqual({ beta: true });
+    expect(state().fontSize).toBe(32);
+  });
+
+  it("ignores a missing or garbled UI state", () => {
+    seed({ activeTab: { alpha: 1 }, fontSize: 14 });
+    loadUiState(null);
+    loadUiState("{ torn");
+    loadUiState("[]");
+    expect(state().activeTab).toEqual({ alpha: 1 });
+    expect(state().fontSize).toBe(14);
   });
 });
 

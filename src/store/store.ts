@@ -4,6 +4,7 @@
  */
 import { create } from "zustand";
 import {
+  type AgentHooks,
   type CreateArgs,
   type CreateEvent,
   type CreateInfo,
@@ -18,6 +19,7 @@ import {
 } from "../ipc";
 import { detectPlatform, type Platform } from "../keymap";
 import { findPlane, sessionsOf } from "./selectors";
+import { fromSaved, SAVE_DELAY_MS, toSaved } from "./uiState";
 
 export const DEFAULT_FONT_SIZE = 13;
 const MIN_FONT_SIZE = 8;
@@ -28,7 +30,8 @@ export type Dialog =
   | { kind: "create"; initial: CreateArgs | null; failure: CreateFailure | null }
   | { kind: "createLog"; planeId: string }
   | { kind: "confirmClose"; sessionId: number; processName: string }
-  | { kind: "quit"; info: QuitInfo };
+  | { kind: "quit"; info: QuitInfo }
+  | { kind: "agentResume"; hooks: AgentHooks | null; error: string | null };
 
 export interface CreateFailure {
   envelope: Envelope | null;
@@ -92,8 +95,36 @@ export async function connect(onQuitRequested: () => void = requestQuit): Promis
     events.quitRequested.listen(() => onQuitRequested()),
   ]);
   loadSnapshot(await commands.snapshot());
+  loadUiState(await commands.uiStateLoad().catch(() => null));
+  const stopSaving = saveUiStateOnChange();
   return () => {
+    stopSaving();
     for (const stop of unlisten) stop();
+  };
+}
+
+export function loadUiState(json: string | null): void {
+  const saved = fromSaved(json, get().sessions);
+  if (saved.fontSize !== undefined) saved.fontSize = clampFontSize(saved.fontSize);
+  set((state) => ({ ...saved, activeTab: { ...state.activeTab, ...saved.activeTab } }));
+}
+
+/** Save the UI state shortly after it changes. Returns an unsubscribe. */
+export function saveUiStateOnChange(): () => void {
+  let saved = JSON.stringify(toSaved(get()));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const unsubscribe = useStore.subscribe(() => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const json = JSON.stringify(toSaved(get()));
+      if (json === saved) return;
+      saved = json;
+      void commands.uiStateSave(json).catch(() => undefined);
+    }, SAVE_DELAY_MS);
+  });
+  return () => {
+    clearTimeout(timer);
+    unsubscribe();
   };
 }
 
@@ -104,7 +135,16 @@ export function loadSnapshot(snapshot: Snapshot): void {
   for (const create of snapshot.creates) {
     if (create.status.kind === "scriptFailed") scriptFailed[create.id] = true;
   }
-  set({ planes: snapshot.planes, sessions, creates, scriptFailed });
+  const skipped = snapshot.restoreSkipped;
+  set({
+    planes: snapshot.planes,
+    sessions,
+    creates,
+    scriptFailed,
+    ...(skipped.length > 0 && {
+      notice: `Couldn't restore the sessions of ${skipped.join(", ")}: ${skipped.length === 1 ? "the plane is" : "the planes are"} gone.`,
+    }),
+  });
 }
 
 export function applyPlanes(planes: PlanesModel): void {
@@ -315,17 +355,36 @@ export async function dismissCreate(planeId: string): Promise<void> {
 
 export function zoom(step: 1 | -1 | 0): void {
   set((state) => ({
-    fontSize:
-      step === 0
-        ? DEFAULT_FONT_SIZE
-        : Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, state.fontSize + step)),
+    fontSize: step === 0 ? DEFAULT_FONT_SIZE : clampFontSize(state.fontSize + step),
   }));
+}
+
+export async function openAgentResume(): Promise<void> {
+  set({ dialog: { kind: "agentResume", hooks: null, error: null } });
+  try {
+    const hooks = await commands.agentHooksDescribe();
+    set({ dialog: { kind: "agentResume", hooks, error: null } });
+  } catch (error) {
+    set({ dialog: { kind: "agentResume", hooks: null, error: String(error) } });
+  }
+}
+
+export async function installAgentHooks(): Promise<void> {
+  try {
+    await commands.agentHooksInstall();
+    set({ dialog: null, notice: "Agent resume is enabled for new Claude Code sessions." });
+  } catch (error) {
+    const dialog = get().dialog;
+    const hooks = dialog?.kind === "agentResume" ? dialog.hooks : null;
+    set({ dialog: { kind: "agentResume", hooks, error: String(error) } });
+  }
 }
 
 /** ⌘Q or closing the window: confirm only when something would be lost. */
 export async function requestQuit(): Promise<void> {
   const info = await commands.quitCheck();
-  if (info.busy.length > 0 || info.creating.length > 0) {
+  const lost = info.busy.some((b) => !b.resumes || b.working);
+  if (lost || info.creating.length > 0) {
     set({ dialog: { kind: "quit", info } });
   } else {
     await commands.quit();
@@ -334,6 +393,10 @@ export async function requestQuit(): Promise<void> {
 
 export async function quit(): Promise<void> {
   await commands.quit();
+}
+
+function clampFontSize(size: number): number {
+  return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, size));
 }
 
 function activeSessionId(): number | undefined {

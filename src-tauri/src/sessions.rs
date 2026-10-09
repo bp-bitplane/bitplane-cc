@@ -1,5 +1,5 @@
-//! Sessions: the registry, PTY threads, flow control, busy check and restart
-//! (spec §4, §7.3, §7.4; ADRs 0003 and 0004).
+//! Sessions: the registry, PTY threads, flow control, busy check, restart and
+//! restore (spec §4, §7.3, §7.4; ADRs 0003, 0004 and 0005).
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -13,7 +13,9 @@ use portable_pty::{
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::agents;
 use crate::env::EnvMap;
+use crate::persist::Entry;
 use crate::planes::Source;
 
 pub type SessionId = u32;
@@ -41,6 +43,8 @@ const DEFAULT_SIZE: PtySize = PtySize {
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
     pub id: SessionId,
+    /// Stable across restarts of the app, unlike `id`.
+    pub key: String,
     pub plane_id: String,
     /// Creation order; a plane's tabs are its sessions sorted by this.
     pub seq: u32,
@@ -93,6 +97,32 @@ pub struct SpawnConfig {
     pub env: EnvMap,
     pub shell: PathBuf,
     pub app_version: String,
+    /// Where the agent hooks write agent links; `None` leaves them unset.
+    pub agents_dir: Option<PathBuf>,
+}
+
+/// A session to bring back on launch (ADR 0005).
+#[derive(Debug, Clone)]
+pub struct Restore {
+    pub key: String,
+    pub plane_id: String,
+    pub plane_dir: PathBuf,
+    pub title: Option<String>,
+    /// Where the shell starts; the plane root unless an agent session resumes.
+    pub cwd: PathBuf,
+    /// Typed into the shell once it's spawned.
+    pub input: Option<String>,
+    /// Shown above the shell's first prompt.
+    pub notice: Option<String>,
+}
+
+/// A busy session, for the quit confirmation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Busy {
+    pub key: String,
+    pub plane_id: String,
+    pub plane_dir: PathBuf,
+    pub process_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,25 +187,54 @@ impl Sessions {
         plane_id: &str,
         plane_dir: &Path,
     ) -> Result<SessionInfo, SessionError> {
-        check_root(plane_dir)?;
+        self.restore(Restore {
+            key: uuid::Uuid::new_v4().to_string(),
+            plane_id: plane_id.into(),
+            plane_dir: plane_dir.into(),
+            title: None,
+            cwd: plane_dir.into(),
+            input: None,
+            notice: None,
+        })
+    }
+
+    /// Open a session under a key it had before. Restores happen in creation
+    /// order, so tabs keep their order.
+    pub fn restore(self: &Arc<Self>, restore: Restore) -> Result<SessionInfo, SessionError> {
+        check_root(&restore.plane_dir)?;
         let mut inner = self.inner.lock().unwrap();
         inner.next_id += 1;
         let id = inner.next_id;
         let session = Session {
             info: SessionInfo {
                 id,
-                plane_id: plane_id.into(),
+                key: restore.key,
+                plane_id: restore.plane_id,
                 seq: id,
                 status: SessionStatus::Running,
                 title: None,
                 shell_name: crate::env::shell_name(&self.config.shell),
             },
-            plane_dir: plane_dir.into(),
+            plane_dir: restore.plane_dir,
             flow: Arc::new(Flow::default()),
             pty: None,
         };
         inner.sessions.insert(id, session);
-        let info = self.start_pty(&mut inner, id);
+        let mut info = self.start_pty(&mut inner, id, &restore.cwd);
+        let session = inner.sessions.get_mut(&id).expect("just inserted");
+        if let Some(notice) = restore.notice {
+            session
+                .flow
+                .inject(format!("\x1b[2m{notice}\x1b[0m\r\n").as_bytes());
+        }
+        if let (Some(input), Some(pty)) = (restore.input, &session.pty) {
+            let mut writer = pty.writer.lock().unwrap();
+            let _ = writer
+                .write_all(input.as_bytes())
+                .and_then(|()| writer.flush());
+        }
+        session.info.title = restore.title.filter(|t| !t.trim().is_empty());
+        info.title = session.info.title.clone();
         drop(inner);
         (self.emit)(SessionEvent {
             id,
@@ -195,7 +254,8 @@ impl Sessions {
         if let Some(pty) = session.pty.take() {
             hang_up(pty);
         }
-        let info = self.start_pty(&mut inner, id);
+        let plane_dir = session.plane_dir.clone();
+        let info = self.start_pty(&mut inner, id, &plane_dir);
         drop(inner);
         (self.emit)(SessionEvent {
             id,
@@ -204,10 +264,13 @@ impl Sessions {
         Ok(info)
     }
 
-    /// Close a session: SIGHUP its shell and forget it.
+    /// Close a session: SIGHUP its shell and forget it, and its agent link.
     pub fn close(&self, id: SessionId) {
         let removed = self.inner.lock().unwrap().sessions.remove(&id);
         if let Some(session) = removed {
+            if let Some(dir) = &self.config.agents_dir {
+                agents::remove(dir, &session.info.key);
+            }
             session.flow.close();
             if let Some(pty) = session.pty {
                 hang_up(pty);
@@ -321,19 +384,35 @@ impl Sessions {
     }
 
     /// Every busy session's plane and foreground process.
-    pub fn busy_sessions(&self) -> Vec<(String, String)> {
+    pub fn busy_sessions(&self) -> Vec<Busy> {
         let inner = self.inner.lock().unwrap();
         inner
             .sessions
             .values()
             .filter_map(|session| {
                 let info = busy_info(session.pty.as_ref()?);
-                info.busy.then(|| {
-                    (
-                        session.info.plane_id.clone(),
-                        info.process_name.unwrap_or_else(|| "a process".into()),
-                    )
+                info.busy.then(|| Busy {
+                    key: session.info.key.clone(),
+                    plane_id: session.info.plane_id.clone(),
+                    plane_dir: session.plane_dir.clone(),
+                    process_name: info.process_name.unwrap_or_else(|| "a process".into()),
                 })
+            })
+            .collect()
+    }
+
+    /// What `sessions.json` holds, in creation order.
+    pub fn entries(&self) -> Vec<Entry> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .sessions
+            .values()
+            .map(|session| Entry {
+                key: session.info.key.clone(),
+                plane_id: session.info.plane_id.clone(),
+                plane_dir: session.plane_dir.clone(),
+                title: session.info.title.clone(),
+                seq: session.info.seq,
             })
             .collect()
     }
@@ -350,13 +429,13 @@ impl Sessions {
     }
 
     /// Spawn a PTY for session `id`, updating its status.
-    fn start_pty(self: &Arc<Self>, inner: &mut Inner, id: SessionId) -> SessionInfo {
+    fn start_pty(self: &Arc<Self>, inner: &mut Inner, id: SessionId, cwd: &Path) -> SessionInfo {
         let session = inner
             .sessions
             .get_mut(&id)
             .expect("caller checked the session");
         let generation = session.flow.next_generation();
-        match spawn(&self.config, &session.info.plane_id, &session.plane_dir) {
+        match spawn(&self.config, &session.info, &session.plane_dir, cwd) {
             Ok((pty, child, reader)) => {
                 spawn_reader(reader, Arc::clone(&session.flow), generation);
                 self.spawn_waiter(id, child, Arc::clone(&session.flow), generation);
@@ -417,20 +496,30 @@ impl Sessions {
 
 type Spawned = (Pty, Box<dyn Child + Send + Sync>, Box<dyn Read + Send>);
 
-fn spawn(config: &SpawnConfig, plane_id: &str, plane_dir: &Path) -> Result<Spawned, String> {
+fn spawn(
+    config: &SpawnConfig,
+    info: &SessionInfo,
+    plane_dir: &Path,
+    cwd: &Path,
+) -> Result<Spawned, String> {
     let pair = NativePtySystem::default()
         .openpty(DEFAULT_SIZE)
         .map_err(|e| format!("couldn't open a terminal: {e}"))?;
 
     let mut command = CommandBuilder::new(&config.shell);
     command.arg("-l");
-    command.cwd(plane_dir);
+    command.cwd(cwd);
     command.env_clear();
     for (key, value) in &config.env {
         command.env(key, value);
     }
-    command.env("BITPLANE_PLANE_ID", plane_id);
+    command.env("BITPLANE_PLANE_ID", &info.plane_id);
     command.env("BITPLANE_PLANE_DIR", plane_dir);
+    command.env("BITPLANE_SESSION_ID", &info.key);
+    match &config.agents_dir {
+        Some(dir) => command.env("BITPLANE_CC_AGENTS", dir),
+        None => command.env_remove("BITPLANE_CC_AGENTS"),
+    }
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
     command.env("TERM_PROGRAM", "bitplane-cc");
@@ -564,6 +653,12 @@ impl Flow {
 
     fn close(&self) {
         self.state.lock().unwrap().closed = true;
+        self.changed.notify_all();
+    }
+
+    /// Output the program didn't write, queued ahead of what it will.
+    fn inject(&self, bytes: &[u8]) {
+        self.state.lock().unwrap().pending.extend_from_slice(bytes);
         self.changed.notify_all();
     }
 }

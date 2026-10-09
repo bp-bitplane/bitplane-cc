@@ -32,6 +32,16 @@ describe("Palette", () => {
     expect(screen.getByRole("img", { name: "findings" })).toBeInTheDocument();
   });
 
+  it("offers enabling agent resume", async () => {
+    const backend = mockBackend({
+      agent_hooks_describe: () => ({ path: "/s.json", status: "missing", entries: "{}" }),
+    });
+    render(<Palette />);
+    await userEvent.keyboard("resume{Enter}");
+    expect(backend.called("agent_hooks_describe")).toHaveLength(1);
+    expect(useStore.getState().dialog?.kind).toBe("agentResume");
+  });
+
   it("says when nothing matches and closes on Escape", async () => {
     render(<Palette />);
     await userEvent.keyboard("zzz");

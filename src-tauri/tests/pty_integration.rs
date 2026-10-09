@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 
 use bitplane_cc_lib::env::{self, EnvMap};
 use bitplane_cc_lib::sessions::{
-    OutputSink, SessionError, SessionEvent, SessionId, SessionStatus, Sessions, SpawnConfig, WINDOW,
+    OutputSink, Restore, SessionError, SessionEvent, SessionId, SessionStatus, Sessions,
+    SpawnConfig, WINDOW,
 };
 
 #[test]
@@ -17,6 +18,60 @@ fn session_runs_in_the_plane_root_with_plane_variables() {
     let root = fixture.root.canonicalize().unwrap();
     fixture.wait_for_output("id=demo term=bitplane-cc");
     fixture.wait_for_output(root.to_str().unwrap());
+}
+
+#[test]
+fn sessions_carry_a_key_and_the_agents_dir() {
+    let fixture = Fixture::new("/bin/sh");
+    let id = fixture.open();
+    let key = fixture.sessions.list()[0].key.clone();
+    assert_eq!(key.len(), 36);
+    fixture.type_line(
+        id,
+        "echo \"key=$BITPLANE_SESSION_ID agents=$BITPLANE_CC_AGENTS\"",
+    );
+    fixture.wait_for_output(&format!("key={key} agents={}", fixture.agents.display()));
+}
+
+#[test]
+fn closing_deletes_the_agent_link() {
+    let fixture = Fixture::new("/bin/sh");
+    let id = fixture.open();
+    let link = fixture
+        .agents
+        .join(format!("{}.json", fixture.sessions.list()[0].key));
+    std::fs::write(&link, "{}").unwrap();
+    fixture.type_line(id, "exit 0");
+    fixture.wait_for_event(|e| e.id == id && e.session.is_none());
+    assert!(!link.exists());
+}
+
+#[test]
+fn restore_keeps_the_key_and_types_the_resume_line() {
+    let fixture = Fixture::new("/bin/sh");
+    let cwd = fixture.root.join("api");
+    std::fs::create_dir(&cwd).unwrap();
+    let info = fixture
+        .sessions
+        .restore(Restore {
+            key: "k-restored".into(),
+            plane_id: "demo".into(),
+            plane_dir: fixture.root.clone(),
+            title: Some("claude".into()),
+            cwd: cwd.clone(),
+            input: Some("echo resumed-$((6*7)) \"$PWD\"\n".into()),
+            notice: Some("note-for-user".into()),
+        })
+        .unwrap();
+    assert_eq!(info.key, "k-restored");
+    assert_eq!(info.title.as_deref(), Some("claude"));
+    fixture.attach(info.id);
+    fixture.wait_for_output("note-for-user");
+    fixture.wait_for_output(&format!(
+        "resumed-42 {}",
+        cwd.canonicalize().unwrap().display()
+    ));
+    assert_eq!(fixture.sessions.entries()[0].key, "k-restored");
 }
 
 #[test]
@@ -103,9 +158,10 @@ fn busy_while_a_program_runs() {
     };
     assert!(busy.busy);
     assert_eq!(busy.process_name.as_deref(), Some("sleep"));
+    let busy = fixture.sessions.busy_sessions();
     assert_eq!(
-        fixture.sessions.busy_sessions(),
-        [("demo".into(), "sleep".into())]
+        (busy[0].plane_id.as_str(), busy[0].process_name.as_str()),
+        ("demo", "sleep")
     );
     fixture.sessions.close(id);
 }
@@ -162,6 +218,7 @@ struct Fixture {
     events: Arc<Mutex<Vec<SessionEvent>>>,
     sink: Arc<Sink>,
     root: PathBuf,
+    agents: PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -170,6 +227,8 @@ impl Fixture {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("demo");
         std::fs::create_dir(&root).unwrap();
+        let agents = dir.path().join("agents");
+        std::fs::create_dir(&agents).unwrap();
         let mut env: EnvMap = env::original();
         // A quiet, predictable shell.
         env.insert("PS1".into(), "$ ".into());
@@ -181,6 +240,7 @@ impl Fixture {
                 env,
                 shell: shell.into(),
                 app_version: "0.0.0-test".into(),
+                agents_dir: Some(agents.clone()),
             },
             Arc::new(move |event| recorded.lock().unwrap().push(event)),
         );
@@ -192,6 +252,7 @@ impl Fixture {
             events,
             sink,
             root,
+            agents,
             _dir: dir,
         }
     }
@@ -199,13 +260,17 @@ impl Fixture {
     fn open(&self) -> SessionId {
         let info = self.sessions.open("demo", &self.root).unwrap();
         assert_eq!(info.status, SessionStatus::Running);
+        self.attach(info.id);
+        info.id
+    }
+
+    fn attach(&self, id: SessionId) {
         let sink = Arc::clone(&self.sink);
         sink.session
             .lock()
             .unwrap()
-            .replace((info.id, Arc::downgrade(&self.sessions)));
-        self.sessions.attach(info.id, sink).unwrap();
-        info.id
+            .replace((id, Arc::downgrade(&self.sessions)));
+        self.sessions.attach(id, sink).unwrap();
     }
 
     fn type_line(&self, id: SessionId, line: &str) {

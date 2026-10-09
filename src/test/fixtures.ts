@@ -25,6 +25,7 @@ export function session(
 ): SessionInfo {
   return {
     id,
+    key: `key-${id}`,
     planeId,
     seq: id,
     status: { kind: "running" },

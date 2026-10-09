@@ -10,6 +10,10 @@ The v1 spec is the source of truth for behaviour; vocabulary lives in [`GLOSSARY
 - `bp` 0.1.0 or newer on your login shell's `PATH`
 - Node 26 (`.nvmrc`), pnpm 12, and the Rust toolchain pinned in `rust-toolchain.toml`
 
+## Restoring sessions
+
+Quitting keeps your tabs: on the next launch each one reopens with a fresh shell in its plane. To also get back the Claude Code sessions running in them, run **Enable agent resume** from the palette (⌘P) once. It adds hooks to `~/.claude/settings.json` that record which Claude Code session each tab runs, and the restored tab types `claude --resume <id>` for you. The hooks do nothing outside the app. Programs other than Claude Code, and scrollback, aren't restored (ADR 0005).
+
 ## Development
 
 ```sh

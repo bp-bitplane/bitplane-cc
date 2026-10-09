@@ -16,6 +16,7 @@ use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_
 use crate::app::{App, PlanesModel, Snapshot};
 use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
+use crate::hooks::{self, AgentHooks};
 use crate::planes;
 use crate::quit::{self, QuitInfo};
 use crate::sessions::{BusyInfo, OutputSink, SessionError, SessionEvent, SessionId, SessionInfo};
@@ -59,6 +60,10 @@ pub fn builder() -> Builder<Wry> {
             project_list,
             quit_check,
             quit,
+            ui_state_load,
+            ui_state_save,
+            agent_hooks_describe,
+            agent_hooks_install,
         ])
         .events(collect_events![
             PlanesChanged,
@@ -199,6 +204,37 @@ fn quit_check(app: State<'_, AppState>) -> QuitInfo {
 #[specta::specta]
 fn quit(handle: AppHandle, app: State<'_, AppState>) {
     quit::quit(&handle, &app);
+}
+
+/// The frontend's own state (selection, collapsed planes, zoom), opaque here.
+#[tauri::command]
+#[specta::specta]
+fn ui_state_load(app: State<'_, AppState>) -> Option<String> {
+    app.ui_state_load()
+}
+
+#[tauri::command]
+#[specta::specta]
+fn ui_state_save(app: State<'_, AppState>, json: String) -> Result<(), String> {
+    app.ui_state_save(&json)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn agent_hooks_describe(app: State<'_, AppState>) -> Result<AgentHooks, String> {
+    hooks::describe(&agent_settings(&app)?)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn agent_hooks_install(app: State<'_, AppState>) -> Result<(), String> {
+    hooks::install(&agent_settings(&app)?)
+}
+
+fn agent_settings(app: &App) -> Result<std::path::PathBuf, String> {
+    app.home()
+        .map(|home| hooks::settings_path(&home))
+        .ok_or_else(|| "HOME isn't set".into())
 }
 
 /// Input: the raw body, with the session id in a header.

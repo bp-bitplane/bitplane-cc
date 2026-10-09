@@ -1,11 +1,14 @@
 //! bitplane Command Center: a sidebar of bitplane planes and tabbed terminal
 //! sessions rooted in them.
 
+pub mod agents;
 pub mod app;
 pub mod bp;
 pub mod create;
 pub mod env;
+pub mod hooks;
 pub mod ipc;
+pub mod persist;
 pub mod planes;
 pub mod quit;
 pub mod sessions;
@@ -17,7 +20,7 @@ use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 use tauri_specta::Event;
 
-use crate::app::{App, Emitters};
+use crate::app::{App, DataDir, Emitters};
 use crate::ipc::{CreateChanged, PlanesChanged, QuitRequested, SessionChanged};
 
 /// Where tauri-specta writes the TypeScript bindings.
@@ -61,11 +64,20 @@ pub fn run() {
                     })
                 },
             };
+            let data_dir = match tauri_app.path().app_data_dir() {
+                Ok(dir) => Some(DataDir(dir)),
+                Err(error) => {
+                    eprintln!("bitplane-cc: no app data directory, nothing is restored: {error}");
+                    None
+                }
+            };
             let app = App::new(
                 env::original(),
                 tauri_app.package_info().version.to_string(),
+                data_dir,
                 emitters,
             );
+            app.restore();
             tauri_app.manage::<ipc::AppState>(Arc::clone(&app));
             tauri::async_runtime::spawn(async move {
                 app.start();

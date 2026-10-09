@@ -26,6 +26,11 @@ export const commands = {
 	projectList: () => __TAURI_INVOKE<Project[]>("project_list"),
 	quitCheck: () => __TAURI_INVOKE<QuitInfo>("quit_check"),
 	quit: () => __TAURI_INVOKE<void>("quit"),
+	/**  The frontend's own state (selection, collapsed planes, zoom), opaque here. */
+	uiStateLoad: () => __TAURI_INVOKE<string | null>("ui_state_load"),
+	uiStateSave: (json: string) => __TAURI_INVOKE<null>("ui_state_save", { json }),
+	agentHooksDescribe: () => __TAURI_INVOKE<AgentHooks>("agent_hooks_describe"),
+	agentHooksInstall: () => __TAURI_INVOKE<null>("agent_hooks_install"),
 };
 
 /** Events */
@@ -37,6 +42,14 @@ export const events = {
 };
 
 /* Types */
+/**  What the "Enable agent resume" dialog shows before installing. */
+export type AgentHooks = {
+	path: string,
+	status: HookStatus,
+	/**  The `hooks` entries that get merged in, as JSON. */
+	entries: string,
+};
+
 /**  Whether the app can talk to bp, and if not, why. */
 export type AppStatus = { kind: "loading" } | { kind: "ready" } | { kind: "bpNotFound" } | { kind: "bpTooOld"; found: string; required: string } | { kind: "bpIncompatible"; version: string | null; error: string } | 
 /**  git missing or older than 2.36 (bp exit 4). */
@@ -54,6 +67,10 @@ export type BusyInfo = {
 export type BusyProcess = {
 	planeId: string,
 	processName: string,
+	/**  An agent session runs here and restore will resume it. */
+	resumes: boolean,
+	/**  The agent is mid-turn; resuming won't finish the turn. */
+	working: boolean,
 };
 
 export type CreateArgs = {
@@ -99,6 +116,10 @@ export type Envelope = {
 	problems?: Problem[],
 	remedy?: string | null,
 };
+
+export type HookStatus = "installed" | "missing" | 
+/**  Installed by an older version of the app. */
+"outdated";
 
 /**  `@project` or a repo path, with an optional branch override. */
 export type Member = {
@@ -166,6 +187,8 @@ export type SessionEvent = {
 /**  One session, as the frontend sees it. */
 export type SessionInfo = {
 	id: number,
+	/**  Stable across restarts of the app, unlike `id`. */
+	key: string,
 	planeId: string,
 	/**  Creation order; a plane's tabs are its sessions sorted by this. */
 	seq: number,
@@ -187,6 +210,8 @@ export type Snapshot = {
 	planes: PlanesModel,
 	sessions: SessionInfo[],
 	creates: CreateInfo[],
+	/**  Planes whose sessions weren't restored because their root is gone. */
+	restoreSkipped: string[],
 };
 
 /* Tauri Specta runtime */

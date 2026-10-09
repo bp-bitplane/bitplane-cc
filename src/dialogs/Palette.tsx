@@ -1,21 +1,31 @@
 import { useState } from "react";
 import { sessionsOf } from "../store/selectors";
-import { closeDialog, selectPlane, useStore } from "../store/store";
+import { closeDialog, openAgentResume, selectPlane, useStore } from "../store/store";
 import { PlaneBadges } from "../ui/Badges";
 import { Modal } from "./Modal";
 import styles from "./Palette.module.css";
 
-/** ⌘P: filter plane ids by substring, ↑/↓ to move, Enter to select. */
+const ACTIONS = [{ label: "Enable agent resume", run: openAgentResume }];
+
+/** ⌘P: filter plane ids and actions by substring, ↑/↓ to move, Enter to pick. */
 export function Palette() {
   const rows = useStore((s) => s.planes.planes);
   const sessions = useStore((s) => s.sessions);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
-  const matches = rows.filter((p) => p.id.includes(query.trim().toLowerCase()));
-  const pick = (planeId: string | undefined) => {
-    if (!planeId) return;
-    closeDialog();
-    selectPlane(planeId);
+  const needle = query.trim().toLowerCase();
+  const matches = rows.filter((p) => p.id.includes(needle));
+  const actions = ACTIONS.filter((a) => a.label.toLowerCase().includes(needle));
+  const total = matches.length + actions.length;
+  const pick = (i: number) => {
+    const plane = matches[i];
+    const action = actions[i - matches.length];
+    if (plane) {
+      closeDialog();
+      selectPlane(plane.id);
+    } else if (action) {
+      void action.run();
+    }
   };
 
   return (
@@ -34,12 +44,12 @@ export function Palette() {
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") {
             e.preventDefault();
-            setIndex((i) => Math.min(i + 1, matches.length - 1));
+            setIndex((i) => Math.min(i + 1, total - 1));
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
             setIndex((i) => Math.max(i - 1, 0));
           } else if (e.key === "Enter") {
-            pick(matches[index]?.id);
+            pick(index);
           }
         }}
       />
@@ -52,7 +62,7 @@ export function Palette() {
             aria-selected={i === index}
             className={`${styles.row} ${i === index ? styles.active : ""}`}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => pick(plane.id)}
+            onClick={() => pick(i)}
             onKeyDown={undefined}
           >
             <span>{plane.id}</span>
@@ -60,6 +70,23 @@ export function Palette() {
           </div>
         ))}
         {matches.length === 0 && <div className={`${styles.row} muted`}>No plane matches</div>}
+        {actions.map((action, j) => {
+          const i = matches.length + j;
+          return (
+            <div
+              key={action.label}
+              role="option"
+              tabIndex={-1}
+              aria-selected={i === index}
+              className={`${styles.row} ${i === index ? styles.active : ""}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(i)}
+              onKeyDown={undefined}
+            >
+              <span>{action.label}</span>
+            </div>
+          );
+        })}
       </div>
     </Modal>
   );
