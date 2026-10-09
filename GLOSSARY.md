@@ -35,3 +35,15 @@ _Avoid_: Active session, running session
 **Exited session**:
 A session whose shell ended with an error or never started; its tab stays open showing why, and can be restarted.
 _Avoid_: Dead session, crashed tab
+
+**Agent session**:
+One conversation of a coding agent such as Claude Code, run inside a session and resumable by its own id.
+_Avoid_: Session (when meaning the agent's conversation), chat
+
+**Agent link**:
+The record of which agent session a session last ran; restoring the session resumes that agent session.
+_Avoid_: Agent binding, resume token
+
+**Restore**:
+Reopening, on launch, the tabs that were open when the app last stopped, each with a fresh shell in its plane and its agent session resumed.
+_Avoid_: Reattach (a reload reattaches to running sessions), persist
