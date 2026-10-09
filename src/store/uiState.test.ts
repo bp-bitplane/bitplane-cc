@@ -14,7 +14,7 @@ describe("UI state", () => {
       selectedPlaneId: "alpha",
       activeTab: { alpha: "k1" },
       collapsed: {},
-      fontSize: 13,
+      fontSize: 12,
     });
   });
 
@@ -37,7 +37,7 @@ describe("UI state", () => {
       stop();
       const saves = backend.called("ui_state_save");
       expect(saves).toHaveLength(1);
-      expect(JSON.parse(String(saves[0]?.args.json)).fontSize).toBe(15);
+      expect(JSON.parse(String(saves[0]?.args.json)).fontSize).toBe(14);
     } finally {
       vi.useRealTimers();
     }

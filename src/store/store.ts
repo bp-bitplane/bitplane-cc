@@ -21,7 +21,7 @@ import { detectPlatform, type Platform } from "../keymap";
 import { findPlane, sessionsOf } from "./selectors";
 import { fromSaved, SAVE_DELAY_MS, toSaved } from "./uiState";
 
-export const DEFAULT_FONT_SIZE = 13;
+export const DEFAULT_FONT_SIZE = 12;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 

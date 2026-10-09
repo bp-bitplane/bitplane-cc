@@ -336,13 +336,13 @@ describe("restoring", () => {
   });
 });
 
-it("zooms within bounds and resets to 13 px", () => {
+it("zooms within bounds and resets to 12 px", () => {
   seed();
   zoom(1);
   zoom(1);
-  expect(state().fontSize).toBe(15);
+  expect(state().fontSize).toBe(14);
   for (let i = 0; i < 40; i++) zoom(-1);
   expect(state().fontSize).toBe(8);
   zoom(0);
-  expect(state().fontSize).toBe(13);
+  expect(state().fontSize).toBe(12);
 });
