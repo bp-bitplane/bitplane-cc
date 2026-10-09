@@ -511,7 +511,9 @@ fn spawn(
     command.cwd(cwd);
     command.env_clear();
     for (key, value) in &config.env {
-        command.env(key, value);
+        if !agents::PARENT_SESSION_VARS.contains(&key.as_str()) {
+            command.env(key, value);
+        }
     }
     command.env("BITPLANE_PLANE_ID", &info.plane_id);
     command.env("BITPLANE_PLANE_DIR", plane_dir);

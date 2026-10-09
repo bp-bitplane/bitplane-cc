@@ -28,9 +28,12 @@ fn sessions_carry_a_key_and_the_agents_dir() {
     assert_eq!(key.len(), 36);
     fixture.type_line(
         id,
-        "echo \"key=$BITPLANE_SESSION_ID agents=$BITPLANE_CC_AGENTS\"",
+        "echo \"key=$BITPLANE_SESSION_ID agents=$BITPLANE_CC_AGENTS cc=${CLAUDECODE-unset} cfg=$CLAUDE_CONFIG_DIR\"",
     );
-    fixture.wait_for_output(&format!("key={key} agents={}", fixture.agents.display()));
+    fixture.wait_for_output(&format!(
+        "key={key} agents={} cc=unset cfg=/kept",
+        fixture.agents.display()
+    ));
 }
 
 #[test]
@@ -230,6 +233,8 @@ impl Fixture {
         let agents = dir.path().join("agents");
         std::fs::create_dir(&agents).unwrap();
         let mut env: EnvMap = env::original();
+        env.insert("CLAUDECODE".into(), "1".into());
+        env.insert("CLAUDE_CONFIG_DIR".into(), "/kept".into());
         // A quiet, predictable shell.
         env.insert("PS1".into(), "$ ".into());
         env.remove("ENV");

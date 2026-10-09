@@ -11,6 +11,25 @@ use serde::Deserialize;
 /// keep their links.
 pub const QUITTING_MARKER: &str = ".quitting";
 
+/// Set by a Claude Code session for its children. Launched from inside one,
+/// the app must not hand them to its tabs: a claude seeing them takes itself
+/// for a child session and saves no conversation, so there's nothing to resume.
+/// User settings such as `CLAUDE_CONFIG_DIR` are deliberately not listed.
+pub const PARENT_SESSION_VARS: &[&str] = &[
+    "AI_AGENT",
+    "CLAUDECODE",
+    "CLAUDE_AGENT_SDK_VERSION",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentLink {
     pub session_id: String,
