@@ -20,7 +20,7 @@ export function TerminalStack({ visibleId }: { visibleId: number | null }) {
   return (
     <div
       className={styles.stack}
-      style={{ "--term-font-size": `${fontSize}px` } as React.CSSProperties}
+      style={{ "--cc-font-size": `${fontSize}px` } as React.CSSProperties}
     >
       {sessions.map((session) => (
         <TerminalPane key={session.id} session={session} visible={session.id === visibleId} />

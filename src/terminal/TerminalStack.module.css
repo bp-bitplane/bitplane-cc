@@ -1,7 +1,6 @@
 .stack {
   position: absolute;
   inset: 0;
-  --term-font-family: var(--mono);
 }
 
 .pane {
@@ -19,6 +18,10 @@
 }
 
 .pane :global(.wterm) {
+  /* wterm sets these on .wterm itself, so they can't be inherited. */
+  --term-font-family: var(--mono);
+  --term-font-size: var(--cc-font-size);
+  --term-row-height: round(calc(var(--cc-font-size) * 1.2), 1px);
   --term-bg: #000;
   --term-fg: #f5f5f5;
   --term-cursor: var(--accent);
