@@ -6,6 +6,12 @@
   background: var(--bg);
 }
 
+.dragStrip {
+  height: var(--bar-height);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+
 .content {
   position: relative;
   flex: 1;

@@ -23,12 +23,17 @@ import styles from "./MainArea.module.css";
 /** Tab bar, banners, and either the active terminal or a screen in its place. */
 export function MainArea() {
   const view = useStore(useShallow(mainView));
+  const mac = useStore((s) => s.platform === "mac");
   const visibleId = useStore((s) =>
     view.screen === null ? (activeSession(s, s.selectedPlaneId)?.id ?? null) : null,
   );
   return (
     <main className={styles.main}>
-      {view.tabs && <TabBar planeId={view.tabs} />}
+      {view.tabs ? (
+        <TabBar planeId={view.tabs} />
+      ) : (
+        mac && <div className={styles.dragStrip} data-tauri-drag-region />
+      )}
       <Banners />
       <div className={styles.content}>
         <TerminalStack visibleId={visibleId} />

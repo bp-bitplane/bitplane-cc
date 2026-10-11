@@ -14,7 +14,12 @@ export function TabBar({ planeId }: { planeId: string }) {
   const canOpen = kind !== "gone" && kind !== "creating";
 
   return (
-    <div className={styles.tabbar} role="tablist" aria-label={`Sessions in ${planeId}`}>
+    <div
+      className={styles.tabbar}
+      role="tablist"
+      aria-label={`Sessions in ${planeId}`}
+      data-tauri-drag-region
+    >
       {sessions.map((session, index) => {
         const label = tabLabel(session, index + 1);
         const active = session.id === current?.id;

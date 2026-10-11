@@ -87,6 +87,19 @@ describe("Sidebar", () => {
     expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "beta" });
   });
 
+  it("leaves the header's left side to the macOS traffic lights", () => {
+    mockBackend();
+    render(<Sidebar />);
+    expect(within(screen.getByRole("banner")).queryByText("Planes")).not.toBeInTheDocument();
+  });
+
+  it("labels the header on Linux", () => {
+    mockBackend();
+    useStore.setState({ platform: "linux" });
+    render(<Sidebar />);
+    expect(within(screen.getByRole("banner")).getByText("Planes")).toBeInTheDocument();
+  });
+
   it("refreshes from the header button", async () => {
     const backend = mockBackend();
     render(<Sidebar />);

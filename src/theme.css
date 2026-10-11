@@ -21,6 +21,7 @@
   --sans: -apple-system, "Inter", system-ui, sans-serif;
   --sidebar-width: 270px;
   --bar-height: 40px;
+  --traffic-light-inset: 80px;
 }
 
 * {

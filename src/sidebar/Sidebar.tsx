@@ -22,8 +22,8 @@ export function Sidebar() {
   const rows = useStore((s) => s.planes.planes);
   return (
     <aside className={styles.sidebar}>
-      <header className={styles.head}>
-        <span>Planes</span>
+      <header className={styles.head} data-tauri-drag-region>
+        {platform !== "mac" && <span>Planes</span>}
         <span className={styles.headActions}>
           <IconButton title="Expand all" onClick={() => setAllCollapsed(false)}>
             <ChevronsUpDown size={14} strokeWidth={1.75} />

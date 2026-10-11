@@ -22,8 +22,13 @@
   border-bottom: 1px solid var(--line);
 }
 
+:global([data-titlebar="overlay"]) .head {
+  padding-left: var(--traffic-light-inset);
+}
+
 .headActions {
   display: flex;
+  margin-left: auto;
   gap: 2px;
 }
 
