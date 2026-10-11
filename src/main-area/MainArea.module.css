@@ -41,6 +41,7 @@
   gap: 10px;
   padding: 7px 14px;
   font-size: 12px;
+  -webkit-user-select: text;
   user-select: text;
 }
 

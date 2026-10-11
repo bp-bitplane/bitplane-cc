@@ -41,6 +41,7 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -77,6 +78,7 @@ select {
   border-radius: 6px;
   padding: 5px 8px;
   outline: none;
+  -webkit-user-select: text;
   user-select: text;
 }
 

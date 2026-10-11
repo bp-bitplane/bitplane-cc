@@ -5,6 +5,7 @@
   gap: 12px;
   padding: 24px 28px;
   min-height: 0;
+  -webkit-user-select: text;
   user-select: text;
 }
 
