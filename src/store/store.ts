@@ -11,6 +11,7 @@ import {
   commands,
   type Envelope,
   events,
+  type PlaneRow,
   type PlanesModel,
   type QuitInfo,
   type SessionEvent,
@@ -27,7 +28,12 @@ const MAX_FONT_SIZE = 32;
 
 export type Dialog =
   | { kind: "palette" }
-  | { kind: "create"; initial: CreateArgs | null; failure: CreateFailure | null }
+  | {
+      kind: "create";
+      initial: CreateArgs | null;
+      failure: CreateFailure | null;
+      duplicateOf: string | null;
+    }
   | { kind: "createLog"; planeId: string }
   | { kind: "confirmClose"; sessionId: number; processName: string }
   | { kind: "quit"; info: QuitInfo }
@@ -45,6 +51,8 @@ export interface State {
   planes: PlanesModel;
   sessions: Record<number, SessionInfo>;
   creates: Record<string, CreateInfo>;
+  /** New plane id → the plane it duplicates, while its create runs. */
+  duplicates: Record<string, string>;
 
   selectedPlaneId: string | null;
   activeTab: Record<string, number>;
@@ -69,6 +77,7 @@ export const initialState = (): State => ({
   },
   sessions: {},
   creates: {},
+  duplicates: {},
   selectedPlaneId: null,
   activeTab: {},
   collapsed: {},
@@ -310,7 +319,26 @@ export function togglePalette(): void {
 }
 
 export function openCreateDialog(): void {
-  set({ dialog: { kind: "create", initial: null, failure: null } });
+  set({ dialog: { kind: "create", initial: null, failure: null, duplicateOf: null } });
+}
+
+/** Branch and id start empty: a branch can't be checked out in two worktrees at once. */
+export function openDuplicateDialog(plane: PlaneRow): void {
+  set({
+    dialog: {
+      kind: "create",
+      initial: {
+        id: "",
+        branch: "",
+        members: plane.members.map((spec) => ({ spec, branch: null })),
+        intent: "auto",
+        noFetch: false,
+        noScripts: false,
+      },
+      failure: null,
+      duplicateOf: plane.id,
+    },
+  });
 }
 
 export function closeDialog(): void {
@@ -333,8 +361,14 @@ export async function createDraft(id: string): Promise<void> {
   selectPlane(id);
 }
 
-export async function createPlane(args: CreateArgs): Promise<void> {
+export async function createPlane(
+  args: CreateArgs,
+  duplicateOf: string | null = null,
+): Promise<void> {
   await commands.planeCreate(args);
+  if (duplicateOf !== null) {
+    set((state) => ({ duplicates: { ...state.duplicates, [args.id]: duplicateOf } }));
+  }
   closeDialog();
   // Not `selectPlane`: the "creating" row may not have arrived yet, and a
   // shell must never start in a half-built plane.
@@ -409,6 +443,8 @@ function activeSessionId(): number | undefined {
 }
 
 async function onCreateFinished(create: CreateInfo): Promise<void> {
+  const { [create.id]: duplicateOf = null, ...duplicates } = get().duplicates;
+  set({ duplicates });
   switch (create.status.kind) {
     case "succeeded":
       await commands.planeCreateDismiss(create.id);
@@ -431,6 +467,7 @@ async function onCreateFinished(create: CreateInfo): Promise<void> {
             log: envelope?.error === "create_aborted" ? create.log : null,
             retryable,
           },
+          duplicateOf,
         },
       });
       break;

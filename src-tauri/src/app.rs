@@ -322,6 +322,7 @@ impl App {
                                 .into_iter()
                                 .map(|f| f.finding)
                                 .collect(),
+                            members: plane.members.into_iter().map(|m| m.member).collect(),
                         })
                         .collect();
                     state.status = Some(AppStatus::Ready);

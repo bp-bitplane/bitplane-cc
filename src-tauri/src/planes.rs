@@ -26,6 +26,8 @@ pub struct PlaneRow {
     pub kind: PlaneKind,
     /// Finding tags from `bp list`; empty for drafts and planes being created.
     pub findings: Vec<String>,
+    /// Member specs from `bp list`; empty unless `kind` is `Plane`.
+    pub members: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -43,6 +45,7 @@ pub struct Source {
     pub id: String,
     pub directory: PathBuf,
     pub findings: Vec<String>,
+    pub members: Vec<String>,
 }
 
 impl Source {
@@ -51,6 +54,7 @@ impl Source {
             id: id.into(),
             directory: directory.into(),
             findings: Vec::new(),
+            members: Vec::new(),
         }
     }
 }
@@ -124,29 +128,35 @@ pub fn merge_rows(
     with_sessions: &[Source],
 ) -> Vec<PlaneRow> {
     let mut rows: BTreeMap<String, PlaneRow> = BTreeMap::new();
-    let mut put = |source: &Source, kind: PlaneKind, findings: bool| {
+    let mut put = |source: &Source, kind: PlaneKind| {
+        let listed = kind == PlaneKind::Plane;
         rows.entry(source.id.clone()).or_insert_with(|| PlaneRow {
             id: source.id.clone(),
             directory: source.directory.to_string_lossy().into_owned(),
             kind,
-            findings: if findings {
+            findings: if listed {
                 source.findings.clone()
+            } else {
+                Vec::new()
+            },
+            members: if listed {
+                source.members.clone()
             } else {
                 Vec::new()
             },
         });
     };
     for source in creating {
-        put(source, PlaneKind::Creating, false);
+        put(source, PlaneKind::Creating);
     }
     for source in listed {
-        put(source, PlaneKind::Plane, true);
+        put(source, PlaneKind::Plane);
     }
     for source in drafts {
-        put(source, PlaneKind::Draft, false);
+        put(source, PlaneKind::Draft);
     }
     for source in with_sessions {
-        put(source, PlaneKind::Gone, false);
+        put(source, PlaneKind::Gone);
     }
     rows.into_values().collect()
 }
@@ -348,8 +358,10 @@ mod tests {
     fn merges_sorted_with_precedence() {
         let mut listed = Source::new("beta", "/p/beta");
         listed.findings = vec!["member_worktree_missing".into()];
+        listed.members = vec!["@api".into()];
         let mut creating_listed = Source::new("new", "/p/new");
         creating_listed.findings = vec!["create_never_completed".into()];
+        creating_listed.members = vec!["@api".into()];
         let rows = merge_rows(
             &[listed, creating_listed],
             &[Source::new("alpha", "/p/alpha")],
@@ -358,15 +370,15 @@ mod tests {
         );
         let summary: Vec<_> = rows
             .iter()
-            .map(|r| (r.id.as_str(), r.kind, r.findings.len()))
+            .map(|r| (r.id.as_str(), r.kind, r.findings.len(), r.members.len()))
             .collect();
         assert_eq!(
             summary,
             [
-                ("alpha", PlaneKind::Draft, 0),
-                ("beta", PlaneKind::Plane, 1),
-                ("new", PlaneKind::Creating, 0),
-                ("old", PlaneKind::Gone, 0),
+                ("alpha", PlaneKind::Draft, 0, 0),
+                ("beta", PlaneKind::Plane, 1, 1),
+                ("new", PlaneKind::Creating, 0, 0),
+                ("old", PlaneKind::Gone, 0, 0),
             ]
         );
     }

@@ -138,6 +138,8 @@ export type PlaneRow = {
 	kind: PlaneKind,
 	/**  Finding tags from `bp list`; empty for drafts and planes being created. */
 	findings: string[],
+	/**  Member specs from `bp list`; empty unless `kind` is `Plane`. */
+	members: string[],
 };
 
 export type PlanesChanged = PlanesModel;

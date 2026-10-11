@@ -240,7 +240,24 @@ describe("create outcomes", () => {
       kind: "create",
       initial: createInfo("feat").args,
       failure: { envelope, log: "git said no", retryable: false },
+      duplicateOf: null,
     });
+  });
+
+  it("reopens a failed duplicate still duplicating its source", async () => {
+    mockBackend();
+    seed({ planes: planesModel([]) });
+    await createPlane(createInfo("feat").args, "alpha");
+    applyCreate({ id: "feat", create: createInfo("feat") });
+    applyCreate({
+      id: "feat",
+      create: createInfo("feat", {
+        status: { kind: "nothingCreated", envelope: null, retryable: true },
+      }),
+    });
+    await flush();
+    expect(state().dialog).toMatchObject({ kind: "create", duplicateOf: "alpha" });
+    expect(state().duplicates).toEqual({});
   });
 
   it("reacts only to the transition out of running", async () => {

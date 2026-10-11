@@ -20,24 +20,33 @@ type Tab = "empty" | "projects";
 export function CreatePlaneDialog({
   initial,
   failure,
+  duplicateOf = null,
 }: {
   initial: CreateArgs | null;
   failure: CreateFailure | null;
+  duplicateOf?: string | null;
 }) {
   const [tab, setTab] = useState<Tab>(initial ? "projects" : "empty");
+  const title = duplicateOf === null ? "Create plane" : `Duplicate ${duplicateOf}`;
   return (
-    <Modal label="Create plane" onClose={closeDialog} wide>
+    <Modal label={title} onClose={closeDialog} wide>
       <div className={styles.dialog}>
-        <h3>Create plane</h3>
-        <div className={styles.tabs} role="tablist">
-          <TabButton tab="empty" current={tab} onSelect={setTab}>
-            Empty
-          </TabButton>
-          <TabButton tab="projects" current={tab} onSelect={setTab}>
-            From projects
-          </TabButton>
-        </div>
-        {tab === "empty" ? <EmptyForm /> : <ProjectsForm initial={initial} failure={failure} />}
+        <h3>{title}</h3>
+        {duplicateOf === null && (
+          <div className={styles.tabs} role="tablist">
+            <TabButton tab="empty" current={tab} onSelect={setTab}>
+              Empty
+            </TabButton>
+            <TabButton tab="projects" current={tab} onSelect={setTab}>
+              From projects
+            </TabButton>
+          </div>
+        )}
+        {tab === "empty" ? (
+          <EmptyForm />
+        ) : (
+          <ProjectsForm initial={initial} failure={failure} duplicateOf={duplicateOf} />
+        )}
       </div>
     </Modal>
   );
@@ -108,9 +117,11 @@ interface ChosenMember {
 function ProjectsForm({
   initial,
   failure,
+  duplicateOf,
 }: {
   initial: CreateArgs | null;
   failure: CreateFailure | null;
+  duplicateOf: string | null;
 }) {
   const existing = useExistingIds();
   const projects = useProjects();
@@ -119,7 +130,7 @@ function ProjectsForm({
     initial?.members.map((m) => ({ spec: m.spec, branch: m.branch ?? "" })) ?? [],
   );
   const [id, setId] = useState(initial?.id ?? "");
-  const [idEdited, setIdEdited] = useState(initial !== null);
+  const [idEdited, setIdEdited] = useState(Boolean(initial?.id));
   const [intent, setIntent] = useState<BranchIntent>(initial?.intent ?? "auto");
   const [noFetch, setNoFetch] = useState(initial?.noFetch ?? false);
   const [noScripts, setNoScripts] = useState(initial?.noScripts ?? false);
@@ -166,7 +177,7 @@ function ProjectsForm({
     };
     setBusy(true);
     try {
-      await createPlane(args);
+      await createPlane(args, duplicateOf);
     } catch (err) {
       setError(String(err));
       setBusy(false);
@@ -186,7 +197,7 @@ function ProjectsForm({
           <input
             id={inputId}
             // biome-ignore lint/a11y/noAutofocus: the first field of a dialog the user just opened
-            autoFocus={!initial}
+            autoFocus={!failure}
             value={branch}
             placeholder="feat/login"
             spellCheck={false}

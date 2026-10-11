@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useStore } from "../store/store";
 import {
@@ -11,6 +11,23 @@ import {
   sessionsById,
 } from "../test/fixtures";
 import { Sidebar } from "./Sidebar";
+
+const menu = vi.hoisted(() => ({
+  items: [] as { text: string; action: () => void }[],
+  popup: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/menu", () => ({
+  MenuItem: {
+    new: async (item: (typeof menu.items)[number]) => item,
+  },
+  Menu: {
+    new: async (options: { items: typeof menu.items }) => {
+      menu.items = options.items;
+      return { popup: menu.popup };
+    },
+  },
+}));
 
 const rows = [
   plane("alpha", "plane", ["member_worktree_missing"]),
@@ -113,5 +130,37 @@ describe("Sidebar", () => {
     render(<Sidebar />);
     expect(screen.getByText(/\/planes/)).toBeInTheDocument();
     expect(screen.getByText("Couldn't read your shell environment")).toBeInTheDocument();
+  });
+
+  describe("context menu", () => {
+    beforeEach(() => {
+      menu.popup.mockClear();
+    });
+
+    it("duplicates a plane", async () => {
+      mockBackend();
+      render(<Sidebar />);
+      fireEvent.contextMenu(screen.getByRole("button", { name: /^beta/ }));
+      await flush();
+      expect(menu.popup).toHaveBeenCalledOnce();
+      expect(menu.items.map((item) => item.text)).toEqual(["Duplicate plane…"]);
+      menu.items[0]?.action();
+      expect(useStore.getState().dialog).toMatchObject({ kind: "create", duplicateOf: "beta" });
+      expect(useStore.getState().selectedPlaneId).toBe("alpha");
+
+      fireEvent.contextMenu(screen.getByRole("button", { name: /^alpha/ }));
+      await flush();
+      menu.items[0]?.action();
+      expect(useStore.getState().dialog).toMatchObject({ duplicateOf: "alpha" });
+    });
+
+    it("is not offered for drafts or gone planes", async () => {
+      mockBackend();
+      render(<Sidebar />);
+      fireEvent.contextMenu(screen.getByRole("button", { name: /^scratch/ }));
+      fireEvent.contextMenu(screen.getByRole("button", { name: /^old/ }));
+      await flush();
+      expect(menu.popup).not.toHaveBeenCalled();
+    });
   });
 });

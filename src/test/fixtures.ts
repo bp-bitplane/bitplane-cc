@@ -3,7 +3,7 @@ import type { CreateInfo, PlaneKind, PlaneRow, PlanesModel, SessionInfo } from "
 import { initialState, type State, useStore } from "../store/store";
 
 export function plane(id: string, kind: PlaneKind = "plane", findings: string[] = []): PlaneRow {
-  return { id, directory: `/planes/${id}`, kind, findings };
+  return { id, directory: `/planes/${id}`, kind, findings, members: [] };
 }
 
 export function planesModel(rows: PlaneRow[], overrides: Partial<PlanesModel> = {}): PlanesModel {

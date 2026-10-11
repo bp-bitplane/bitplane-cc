@@ -1,11 +1,13 @@
+import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Plus, RefreshCw, X } from "lucide-react";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { PlaneRow } from "../ipc";
 import { labelFor } from "../keymap";
 import { activeSession, isExpanded, sessionsOf, tabLabel } from "../store/selectors";
 import {
   openCreateDialog,
+  openDuplicateDialog,
   refresh,
   requestCloseSession,
   selectPlane,
@@ -89,6 +91,7 @@ function PlaneGroup({ plane }: { plane: PlaneRow }) {
           aria-current={selected || undefined}
           tabIndex={-1}
           onClick={() => selectPlane(plane.id)}
+          onContextMenu={(e) => void showPlaneMenu(e, plane)}
         >
           <span className={styles.planeId}>{plane.id}</span>
           <PlaneBadges plane={plane} sessionCount={expanded ? 0 : sessions.length} />
@@ -124,6 +127,27 @@ function PlaneGroup({ plane }: { plane: PlaneRow }) {
       )}
     </div>
   );
+}
+
+let planeMenu: Promise<Menu> | null = null;
+let planeMenuTarget: PlaneRow | null = null;
+
+async function showPlaneMenu(e: MouseEvent, plane: PlaneRow): Promise<void> {
+  if (plane.kind !== "plane") return;
+  e.preventDefault();
+  planeMenuTarget = plane;
+  planeMenu ??= createPlaneMenu();
+  await (await planeMenu).popup();
+}
+
+// One long-lived menu: an item built inline in `Menu.new` loses its action when Tauri drops it,
+// and a per-click menu closed after `popup()` races the click event.
+async function createPlaneMenu(): Promise<Menu> {
+  const duplicate = await MenuItem.new({
+    text: "Duplicate plane…",
+    action: () => planeMenuTarget && openDuplicateDialog(planeMenuTarget),
+  });
+  return Menu.new({ items: [duplicate] });
 }
 
 function Footer() {

@@ -100,6 +100,14 @@ pub struct ListedPlane {
     pub directory: PathBuf,
     #[serde(default)]
     pub health: Option<Health>,
+    #[serde(default)]
+    pub members: Vec<ListedMember>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListedMember {
+    /// `@project` or a repo path, as `bp create` takes it.
+    pub member: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

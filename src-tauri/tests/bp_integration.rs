@@ -29,6 +29,21 @@ async fn list_reads_findings_on_exit_3() {
 }
 
 #[tokio::test]
+async fn list_reads_member_specs() {
+    let fixture = Fixture::new(&[(
+        "FAKE_BP_LIST",
+        r#"{"action":"plane_list","planes":[{"id":"a","directory":"/p/a","created_at":null,"members":[{"member":"@sos/api","path":"sos/api","head":{"head":"branch","branch":"feat/x"}},{"member":"/repos/web","path":"projects/web","head":{"head":"detached"}}],"health":{"checked":"cheap","findings":[]}}]}"#,
+    )]);
+    let planes = fixture.bp.list().await.unwrap();
+    let members: Vec<_> = planes[0]
+        .members
+        .iter()
+        .map(|m| m.member.as_str())
+        .collect();
+    assert_eq!(members, ["@sos/api", "/repos/web"]);
+}
+
+#[tokio::test]
 async fn every_call_passes_planes_dir_and_json() {
     let fixture = Fixture::new(&[]);
     fixture.bp.list().await.unwrap();

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useStore } from "../store/store";
+import { Dialogs } from "../dialogs/Dialogs";
+import { openDuplicateDialog, useStore } from "../store/store";
 import {
   createInfo,
   flush,
@@ -22,7 +23,7 @@ describe("CreatePlaneDialog", () => {
   beforeEach(() => {
     seed({
       planes: planesModel([plane("taken")]),
-      dialog: { kind: "create", initial: null, failure: null },
+      dialog: { kind: "create", initial: null, failure: null, duplicateOf: null },
     });
   });
 
@@ -150,6 +151,41 @@ describe("CreatePlaneDialog", () => {
       expect(screen.getByText("Wait for it to finish.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
       await waitFor(() => expect(screen.getByRole("checkbox", { name: "sos/api" })).toBeChecked());
+    });
+  });
+
+  describe("Duplicate", () => {
+    it("starts from the source's members and leaves branch and id to the user", async () => {
+      const backend = mockBackend({ project_list: () => projects });
+      openDuplicateDialog({ ...plane("source"), members: ["@sos/api", "/repos/web"] });
+      render(<Dialogs />);
+
+      expect(screen.getByRole("heading", { name: "Duplicate source" })).toBeInTheDocument();
+      expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+      const branch = screen.getByRole("textbox", { name: "Branch" });
+      expect(branch).toHaveValue("");
+      expect(branch).toHaveFocus();
+      expect(screen.getByRole("textbox", { name: "Branch for /repos/web" })).toHaveValue("");
+
+      await userEvent.type(branch, "feat/copy");
+      expect(screen.getByRole("textbox", { name: /^Id/ })).toHaveValue("feat-copy");
+      await userEvent.click(screen.getByRole("button", { name: "Create plane" }));
+      await flush();
+
+      expect(backend.called("plane_create")[0]?.args).toEqual({
+        args: {
+          id: "feat-copy",
+          branch: "feat/copy",
+          members: [
+            { spec: "@sos/api", branch: null },
+            { spec: "/repos/web", branch: null },
+          ],
+          intent: "auto",
+          noFetch: false,
+          noScripts: false,
+        },
+      });
+      expect(useStore.getState().duplicates).toEqual({ "feat-copy": "source" });
     });
   });
 });

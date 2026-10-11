@@ -13,7 +13,13 @@ export function Dialogs() {
     case "palette":
       return <Palette />;
     case "create":
-      return <CreatePlaneDialog initial={dialog.initial} failure={dialog.failure} />;
+      return (
+        <CreatePlaneDialog
+          initial={dialog.initial}
+          failure={dialog.failure}
+          duplicateOf={dialog.duplicateOf}
+        />
+      );
     case "createLog":
       return <CreateLogDialog planeId={dialog.planeId} />;
     case "confirmClose":
