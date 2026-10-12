@@ -1,5 +1,5 @@
 .sidebar {
-  width: var(--sidebar-width);
+  position: relative;
   flex-shrink: 0;
   background: var(--panel);
   border-right: 1px solid var(--line);

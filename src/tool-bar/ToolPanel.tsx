@@ -1,4 +1,3 @@
-import type { KeyboardEvent, PointerEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   MAX_TOOL_PANEL_WIDTH,
@@ -7,13 +6,12 @@ import {
   useStore,
 } from "../store/store";
 import { Centered } from "../ui/Centered";
+import { ResizeHandle } from "../ui/ResizeHandle";
 import { Files, FilesActions } from "./files/Files";
 import { SourceControl, SourceControlActions } from "./SourceControl";
 import styles from "./ToolPanel.module.css";
 import { type ToolPanelView, toolPanelView } from "./toolPanelView";
 import { TOOL_LABELS, type Tool } from "./tools";
-
-const KEYBOARD_STEP = 16;
 
 export function ToolPanel() {
   const open = useStore((s) => s.toolPanelOpen);
@@ -23,7 +21,14 @@ export function ToolPanel() {
   if (!open) return null;
   return (
     <aside className={styles.panel} style={{ width }} aria-label={TOOL_LABELS[tool]}>
-      <ResizeHandle width={width} />
+      <ResizeHandle
+        edge="left"
+        label="Resize tool panel"
+        width={width}
+        min={MIN_TOOL_PANEL_WIDTH}
+        max={MAX_TOOL_PANEL_WIDTH}
+        onResize={setToolPanelWidth}
+      />
       <header className={styles.head} data-tauri-drag-region>
         <span>{TOOL_LABELS[tool]}</span>
         {view.screen === null && view.planeId && <ToolActions tool={tool} planeId={view.planeId} />}
@@ -80,42 +85,4 @@ function Notice({ view }: { view: ToolPanelView }) {
     default:
       return null;
   }
-}
-
-/** Dragging left widens the panel: it sits left of the Tool bar. */
-function ResizeHandle({ width }: { width: number }) {
-  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    const handle = event.currentTarget;
-    const startX = event.clientX;
-    handle.setPointerCapture(event.pointerId);
-    const onMove = (move: globalThis.PointerEvent) =>
-      setToolPanelWidth(width + startX - move.clientX);
-    const onUp = () => {
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onUp);
-      handle.removeEventListener("pointercancel", onUp);
-    };
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp);
-    handle.addEventListener("pointercancel", onUp);
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "ArrowLeft") setToolPanelWidth(width + KEYBOARD_STEP);
-    else if (event.key === "ArrowRight") setToolPanelWidth(width - KEYBOARD_STEP);
-  };
-  return (
-    // biome-ignore lint/a11y/useSemanticElements: a focusable separator is the ARIA pattern for a splitter.
-    <div
-      className={styles.handle}
-      role="separator"
-      aria-label="Resize tool panel"
-      aria-orientation="vertical"
-      aria-valuenow={width}
-      aria-valuemin={MIN_TOOL_PANEL_WIDTH}
-      aria-valuemax={MAX_TOOL_PANEL_WIDTH}
-      tabIndex={0}
-      onPointerDown={onPointerDown}
-      onKeyDown={onKeyDown}
-    />
-  );
 }

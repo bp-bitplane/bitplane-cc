@@ -15,6 +15,7 @@ export interface SavedUiState {
   collapsed: Record<string, boolean>;
   fontSize: number;
   toolPanel: { open: boolean; tool: Tool; width: number };
+  sidebar: { width: number };
 }
 
 export function toSaved(state: State): SavedUiState {
@@ -33,6 +34,7 @@ export function toSaved(state: State): SavedUiState {
       tool: state.activeTool,
       width: state.toolPanelWidth,
     },
+    sidebar: { width: state.sidebarWidth },
   };
 }
 
@@ -50,6 +52,7 @@ export function fromSaved(
     | "toolPanelOpen"
     | "activeTool"
     | "toolPanelWidth"
+    | "sidebarWidth"
   >
 > {
   const saved = parse(json);
@@ -76,6 +79,10 @@ export function fromSaved(
   if (TOOLS.some((tool) => tool === toolPanel.tool)) result.activeTool = toolPanel.tool as Tool;
   if (typeof toolPanel.width === "number" && Number.isFinite(toolPanel.width)) {
     result.toolPanelWidth = toolPanel.width;
+  }
+  const sidebar = object(saved.sidebar);
+  if (typeof sidebar.width === "number" && Number.isFinite(sidebar.width)) {
+    result.sidebarWidth = sidebar.width;
   }
   return result;
 }

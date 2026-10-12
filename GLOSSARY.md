@@ -52,6 +52,10 @@ _Avoid_: Agent binding, resume token
 Reopening, on launch, the tabs that were open when the app last stopped, each with a fresh shell in its plane and its agent session resumed.
 _Avoid_: Reattach (a reload reattaches to running sessions), persist
 
+**Sidebar**:
+The resizable plane list on the left edge, where planes and their tabs are picked.
+_Avoid_: Plane list, navigator
+
 **Tool bar**:
 The vertical strip of icons on the right edge; always visible, it switches the tool panel between tools and holds plane actions such as opening the plane in VS Code.
 _Avoid_: Sidebar (that is the plane list on the left), activity bar

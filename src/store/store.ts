@@ -33,6 +33,9 @@ const MAX_FONT_SIZE = 32;
 export const DEFAULT_TOOL_PANEL_WIDTH = 320;
 export const MIN_TOOL_PANEL_WIDTH = 220;
 export const MAX_TOOL_PANEL_WIDTH = 640;
+export const DEFAULT_SIDEBAR_WIDTH = 270;
+export const MIN_SIDEBAR_WIDTH = 200;
+export const MAX_SIDEBAR_WIDTH = 480;
 
 export type Dialog =
   | { kind: "palette" }
@@ -75,6 +78,7 @@ export interface State {
   /** The tool the panel shows when open; kept while it's collapsed. */
   activeTool: Tool;
   toolPanelWidth: number;
+  sidebarWidth: number;
   sourceControl: SourceControl | null;
   /** Repo path → collapsed in Source control; never saved. */
   repoCollapsed: Record<string, boolean>;
@@ -114,6 +118,7 @@ export const initialState = (): State => ({
   toolPanelOpen: false,
   activeTool: "sourceControl",
   toolPanelWidth: DEFAULT_TOOL_PANEL_WIDTH,
+  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   sourceControl: null,
   repoCollapsed: {},
   filesExpanded: {},
@@ -163,6 +168,7 @@ export function loadUiState(json: string | null): void {
   if (saved.toolPanelWidth !== undefined) {
     saved.toolPanelWidth = clampToolPanelWidth(saved.toolPanelWidth);
   }
+  if (saved.sidebarWidth !== undefined) saved.sidebarWidth = clampSidebarWidth(saved.sidebarWidth);
   set((state) => ({ ...saved, activeTab: { ...state.activeTab, ...saved.activeTab } }));
 }
 
@@ -460,6 +466,10 @@ export function setToolPanelWidth(width: number): void {
   set({ toolPanelWidth: clampToolPanelWidth(width) });
 }
 
+export function setSidebarWidth(width: number): void {
+  set({ sidebarWidth: clampSidebarWidth(width) });
+}
+
 export async function loadSourceControl(planeId: string): Promise<void> {
   const read = ++sourceControlRead;
   set((state) => ({
@@ -592,7 +602,15 @@ function clampFontSize(size: number): number {
 }
 
 function clampToolPanelWidth(width: number): number {
-  return Math.round(Math.min(MAX_TOOL_PANEL_WIDTH, Math.max(MIN_TOOL_PANEL_WIDTH, width)));
+  return clampWidth(width, MIN_TOOL_PANEL_WIDTH, MAX_TOOL_PANEL_WIDTH);
+}
+
+function clampSidebarWidth(width: number): number {
+  return clampWidth(width, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
+}
+
+function clampWidth(width: number, min: number, max: number): number {
+  return Math.round(Math.min(max, Math.max(min, width)));
 }
 
 function activeSessionId(): number | undefined {

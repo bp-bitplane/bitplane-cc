@@ -163,4 +163,18 @@ describe("Sidebar", () => {
       expect(menu.popup).not.toHaveBeenCalled();
     });
   });
+
+  it("resizes by dragging and from the keyboard, within bounds", () => {
+    render(<Sidebar />);
+    const handle = screen.getByRole("separator", { name: "Resize sidebar" });
+    handle.setPointerCapture = () => undefined;
+    fireEvent.pointerDown(handle, { clientX: 270, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 320, pointerId: 1 });
+    expect(useStore.getState().sidebarWidth).toBe(320);
+    fireEvent.pointerMove(handle, { clientX: 2000, pointerId: 1 });
+    expect(useStore.getState().sidebarWidth).toBe(480);
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(useStore.getState().sidebarWidth).toBe(464);
+  });
 });

@@ -16,6 +16,7 @@ describe("UI state", () => {
       collapsed: {},
       fontSize: 12,
       toolPanel: { open: false, tool: "sourceControl", width: 320 },
+      sidebar: { width: 270 },
     });
   });
 
@@ -28,6 +29,12 @@ describe("UI state", () => {
       "sourceControl",
       640,
     ]);
+  });
+
+  it("restores the sidebar and clamps its width", () => {
+    seed();
+    loadUiState(JSON.stringify({ sidebar: { width: 10 } }));
+    expect(useStore.getState().sidebarWidth).toBe(200);
   });
 
   it("ignores an unknown tool", () => {

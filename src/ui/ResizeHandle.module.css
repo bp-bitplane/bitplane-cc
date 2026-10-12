@@ -1,0 +1,23 @@
+.handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 3;
+  cursor: col-resize;
+  outline: none;
+}
+
+.left {
+  left: -3px;
+}
+
+.right {
+  right: -3px;
+}
+
+.handle:hover,
+.handle:focus-visible,
+.handle:active {
+  background: var(--accent-soft);
+}

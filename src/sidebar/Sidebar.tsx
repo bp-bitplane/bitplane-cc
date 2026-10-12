@@ -6,6 +6,8 @@ import type { PlaneRow } from "../ipc";
 import { labelFor } from "../keymap";
 import { activeSession, isExpanded, sessionsOf, tabLabel } from "../store/selectors";
 import {
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
   openCreateDialog,
   openDuplicateDialog,
   refresh,
@@ -13,17 +15,28 @@ import {
   selectPlane,
   selectSession,
   setAllCollapsed,
+  setSidebarWidth,
   toggleCollapsed,
   useStore,
 } from "../store/store";
 import { PlaneBadges } from "../ui/Badges";
+import { ResizeHandle } from "../ui/ResizeHandle";
 import styles from "./Sidebar.module.css";
 
 export function Sidebar() {
   const platform = useStore((s) => s.platform);
   const rows = useStore((s) => s.planes.planes);
+  const width = useStore((s) => s.sidebarWidth);
   return (
-    <aside className={styles.sidebar}>
+    <aside className={styles.sidebar} style={{ width }}>
+      <ResizeHandle
+        edge="right"
+        label="Resize sidebar"
+        width={width}
+        min={MIN_SIDEBAR_WIDTH}
+        max={MAX_SIDEBAR_WIDTH}
+        onResize={setSidebarWidth}
+      />
       <header className={styles.head} data-tauri-drag-region>
         {platform !== "mac" && <span>Planes</span>}
         <span className={styles.headActions}>
