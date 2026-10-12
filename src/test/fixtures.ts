@@ -1,5 +1,13 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { CreateInfo, PlaneKind, PlaneRow, PlanesModel, SessionInfo } from "../ipc";
+import type {
+  CreateInfo,
+  PlaneKind,
+  PlaneRow,
+  PlanesModel,
+  Repo,
+  SessionInfo,
+  Status,
+} from "../ipc";
 import { initialState, type State, useStore } from "../store/store";
 
 export function plane(id: string, kind: PlaneKind = "plane", findings: string[] = []): PlaneRow {
@@ -32,6 +40,25 @@ export function session(
     title: null,
     shellName: "zsh",
     ...overrides,
+  };
+}
+
+/** A ready repo on `main` with no changes, then `status` overrides. */
+export function repo(name: string, status: Partial<Status> = {}): Repo {
+  return {
+    name,
+    path: `/planes/alpha/projects/${name}`,
+    state: {
+      kind: "ready",
+      status: {
+        head: { kind: "branch", name: "main" },
+        tracking: null,
+        staged: [],
+        unstaged: [],
+        untracked: [],
+        ...status,
+      },
+    },
   };
 }
 

@@ -14,11 +14,13 @@ import {
   type PlaneRow,
   type PlanesModel,
   type QuitInfo,
+  type Repo,
   type SessionEvent,
   type SessionInfo,
   type Snapshot,
 } from "../ipc";
 import { detectPlatform, type Platform } from "../keymap";
+import { toolPanelView } from "../tool-bar/toolPanelView";
 import type { Tool } from "../tool-bar/tools";
 import { findPlane, sessionsOf } from "./selectors";
 import { fromSaved, SAVE_DELAY_MS, toSaved } from "./uiState";
@@ -71,6 +73,18 @@ export interface State {
   /** The tool the panel shows when open; kept while it's collapsed. */
   activeTool: Tool;
   toolPanelWidth: number;
+  sourceControl: SourceControl | null;
+  /** Repo path → collapsed in Source control; never saved. */
+  repoCollapsed: Record<string, boolean>;
+}
+
+/** The last Source control read, for one plane. */
+export interface SourceControl {
+  planeId: string;
+  /** `null` until the first read for this plane succeeds. */
+  repos: Repo[] | null;
+  error: string | null;
+  loading: boolean;
 }
 
 export const initialState = (): State => ({
@@ -96,6 +110,8 @@ export const initialState = (): State => ({
   toolPanelOpen: false,
   activeTool: "sourceControl",
   toolPanelWidth: DEFAULT_TOOL_PANEL_WIDTH,
+  sourceControl: null,
+  repoCollapsed: {},
 });
 
 export const useStore = create<State>()(initialState);
@@ -105,6 +121,9 @@ const get = useStore.getState;
 /** Sessions already reported closed, so a late `session_open` reply can't revive one. */
 const closedSessions = new Set<number>();
 const set = useStore.setState;
+
+/** Bumped per Source control read, so a slow reply for another plane is dropped. */
+let sourceControlRead = 0;
 
 /** Load the snapshot and follow backend events. Returns an unsubscribe. */
 export async function connect(onQuitRequested: () => void = requestQuit): Promise<() => void> {
@@ -365,7 +384,8 @@ export function dismissNotice(): void {
 
 /** Capture the environment again and re-read the plane list (also every Retry). */
 export async function refresh(): Promise<void> {
-  await commands.refresh();
+  const planeId = sourceControlPlaneId();
+  await Promise.all([commands.refresh(), planeId && loadSourceControl(planeId)]);
 }
 
 /** `mkdir` a draft plane, then select it, which opens a session. */
@@ -422,6 +442,44 @@ export function toggleToolPanel(): void {
 
 export function setToolPanelWidth(width: number): void {
   set({ toolPanelWidth: clampToolPanelWidth(width) });
+}
+
+export async function loadSourceControl(planeId: string): Promise<void> {
+  const read = ++sourceControlRead;
+  set((state) => ({
+    sourceControl: {
+      planeId,
+      repos: state.sourceControl?.planeId === planeId ? state.sourceControl.repos : null,
+      error: null,
+      loading: true,
+    },
+  }));
+  try {
+    const repos = await commands.planeSourceControl(planeId);
+    if (read === sourceControlRead) {
+      set({ sourceControl: { planeId, repos, error: null, loading: false } });
+    }
+  } catch (error) {
+    if (read === sourceControlRead) {
+      set({ sourceControl: { planeId, repos: null, error: String(error), loading: false } });
+    }
+  }
+}
+
+export function toggleRepoCollapsed(path: string): void {
+  set((state) => ({
+    repoCollapsed: { ...state.repoCollapsed, [path]: !state.repoCollapsed[path] },
+  }));
+}
+
+export function setAllReposCollapsed(collapsed: boolean): void {
+  const repos = get().sourceControl?.repos ?? [];
+  set((state) => ({
+    repoCollapsed: {
+      ...state.repoCollapsed,
+      ...Object.fromEntries(repos.map((repo) => [repo.path, collapsed])),
+    },
+  }));
 }
 
 export async function openInVscode(planeId: string): Promise<void> {
@@ -518,4 +576,12 @@ async function onCreateFinished(create: CreateInfo): Promise<void> {
     default:
       break;
   }
+}
+
+/** The plane Source control is showing, or `null` when it isn't on screen. */
+function sourceControlPlaneId(): string | null {
+  const state = get();
+  if (!state.toolPanelOpen || state.activeTool !== "sourceControl") return null;
+  const view = toolPanelView(state);
+  return view.screen === null ? view.planeId : null;
 }

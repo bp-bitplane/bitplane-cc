@@ -40,3 +40,18 @@
 .tool:hover:not(:disabled) {
   color: var(--text);
 }
+
+.active {
+  color: var(--text);
+}
+
+.active::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: -6px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}

@@ -7,6 +7,7 @@ import {
   useStore,
 } from "../store/store";
 import { Centered } from "../ui/Centered";
+import { SourceControl, SourceControlActions } from "./SourceControl";
 import styles from "./ToolPanel.module.css";
 import { type ToolPanelView, toolPanelView } from "./toolPanelView";
 import { TOOL_LABELS } from "./tools";
@@ -24,9 +25,16 @@ export function ToolPanel() {
       <ResizeHandle width={width} />
       <header className={styles.head} data-tauri-drag-region>
         <span>{TOOL_LABELS[tool]}</span>
+        {view.screen === null && view.planeId && tool === "sourceControl" && (
+          <SourceControlActions planeId={view.planeId} />
+        )}
       </header>
       <div className={styles.body}>
-        <Notice view={view} />
+        {view.screen === null && view.planeId ? (
+          <SourceControl planeId={view.planeId} />
+        ) : (
+          <Notice view={view} />
+        )}
       </div>
     </aside>
   );

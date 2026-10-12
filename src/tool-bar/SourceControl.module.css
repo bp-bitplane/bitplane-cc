@@ -1,0 +1,176 @@
+.actions {
+  display: flex;
+  margin-left: auto;
+  gap: 2px;
+}
+
+.iconButton {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--dim);
+}
+
+.iconButton:hover {
+  color: var(--text);
+}
+
+.repos {
+  padding: 6px 0;
+}
+
+.repo {
+  margin: 0 6px 4px;
+}
+
+.repoHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 6px 0 2px;
+  border-radius: 6px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--dim);
+  transition: transform 0.12s;
+}
+
+.open {
+  transform: rotate(90deg);
+}
+
+.repoName {
+  flex-shrink: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px var(--mono);
+  font-weight: 400;
+  color: var(--dim);
+}
+
+.sync {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dim);
+}
+
+.count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--raised);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--dim);
+}
+
+.warn {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--warn);
+}
+
+.row {
+  margin: 0;
+  padding: 4px 8px 4px 26px;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+
+.warnRow {
+  color: var(--warn);
+}
+
+.group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 6px 0 22px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dim);
+}
+
+.file {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  height: 22px;
+  line-height: 22px;
+  padding: 0 6px 0 32px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.file:hover {
+  background: var(--hover);
+}
+
+.fileName {
+  flex-shrink: 0;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileDir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.kind {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  font: 600 11px var(--mono);
+  color: var(--dim);
+}
+
+.added,
+.untracked {
+  color: var(--accent);
+}
+
+.deleted,
+.conflicted {
+  color: var(--danger);
+}
+
+.modified,
+.typeChanged,
+.renamed,
+.copied {
+  color: var(--warn);
+}

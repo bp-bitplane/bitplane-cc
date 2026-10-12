@@ -10,6 +10,7 @@ import {
   refresh,
   requestCloseSession,
   requestQuit,
+  selectTool,
   togglePalette,
   toggleToolPanel,
   useStore,
@@ -71,6 +72,9 @@ export function run({ action, digit = 1 }: Match): void {
       break;
     case "toolPanel":
       toggleToolPanel();
+      break;
+    case "sourceControl":
+      selectTool("sourceControl");
       break;
     case "zoomIn":
       zoom(1);
