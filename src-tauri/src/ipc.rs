@@ -18,6 +18,7 @@ use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
 use crate::editor;
 use crate::git::{self, Repo};
+use crate::git_watch::SourceControlEvent;
 use crate::hooks::{self, AgentHooks};
 use crate::planes;
 use crate::quit::{self, QuitInfo};
@@ -36,6 +37,9 @@ pub struct SessionChanged(pub SessionEvent);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct CreateChanged(pub CreateEvent);
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+pub struct SourceControlChanged(pub SourceControlEvent);
 
 /// The user asked to quit (⌘Q or closing the window); the frontend decides
 /// whether to confirm.
@@ -61,6 +65,7 @@ pub fn builder() -> Builder<Wry> {
             plane_create_dismiss,
             plane_open_in_vscode,
             plane_source_control,
+            plane_source_control_watch,
             project_list,
             quit_check,
             quit,
@@ -73,6 +78,7 @@ pub fn builder() -> Builder<Wry> {
             PlanesChanged,
             SessionChanged,
             CreateChanged,
+            SourceControlChanged,
             QuitRequested
         ])
         .error_handling(ErrorHandlingMode::Throw)
@@ -206,6 +212,14 @@ async fn plane_source_control(
 ) -> Result<Vec<Repo>, String> {
     let (root, members) = app.source_control_target(&plane_id)?;
     git::source_control(&root, &members, &app.tool_env()).await
+}
+
+/// Keep `plane_id`'s Source control current through `source_control_changed`;
+/// `None` stops. Sync, so calls apply in the order the frontend made them.
+#[tauri::command]
+#[specta::specta]
+fn plane_source_control_watch(app: State<'_, AppState>, plane_id: Option<String>) {
+    app.watch_source_control(plane_id);
 }
 
 #[tauri::command]

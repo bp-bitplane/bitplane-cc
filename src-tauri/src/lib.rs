@@ -8,6 +8,7 @@ pub mod create;
 pub mod editor;
 pub mod env;
 pub mod git;
+pub mod git_watch;
 pub mod hooks;
 pub mod ipc;
 pub mod persist;
@@ -23,7 +24,9 @@ use tauri_plugin_window_state::StateFlags;
 use tauri_specta::Event;
 
 use crate::app::{App, DataDir, Emitters};
-use crate::ipc::{CreateChanged, PlanesChanged, QuitRequested, SessionChanged};
+use crate::ipc::{
+    CreateChanged, PlanesChanged, QuitRequested, SessionChanged, SourceControlChanged,
+};
 
 /// Where tauri-specta writes the TypeScript bindings.
 pub const BINDINGS_PATH: &str = "../src/ipc/bindings.ts";
@@ -63,6 +66,12 @@ pub fn run() {
                     let handle = handle.clone();
                     Arc::new(move |event| {
                         let _ = CreateChanged(event).emit(&handle);
+                    })
+                },
+                source_control: {
+                    let handle = handle.clone();
+                    Arc::new(move |event| {
+                        let _ = SourceControlChanged(event).emit(&handle);
                     })
                 },
             };

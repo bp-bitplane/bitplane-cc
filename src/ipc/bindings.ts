@@ -25,6 +25,11 @@ export const commands = {
 	planeCreateDismiss: (id: string) => __TAURI_INVOKE<void>("plane_create_dismiss", { id }),
 	planeOpenInVscode: (planeId: string) => __TAURI_INVOKE<null>("plane_open_in_vscode", { planeId }),
 	planeSourceControl: (planeId: string) => __TAURI_INVOKE<Repo[]>("plane_source_control", { planeId }),
+	/**
+	 *  Keep `plane_id`'s Source control current through `source_control_changed`;
+	 *  `None` stops. Sync, so calls apply in the order the frontend made them.
+	 */
+	planeSourceControlWatch: (planeId: string | null) => __TAURI_INVOKE<void>("plane_source_control_watch", { planeId }),
 	projectList: () => __TAURI_INVOKE<Project[]>("project_list"),
 	quitCheck: () => __TAURI_INVOKE<QuitInfo>("quit_check"),
 	quit: () => __TAURI_INVOKE<void>("quit"),
@@ -41,6 +46,7 @@ export const events = {
 	planesChanged: makeEvent<PlanesChanged>("planes-changed"),
 	quitRequested: makeEvent<QuitRequested>("quit-requested"),
 	sessionChanged: makeEvent<SessionChanged>("session-changed"),
+	sourceControlChanged: makeEvent<SourceControlChanged>("source-control-changed"),
 };
 
 /* Types */
@@ -238,6 +244,14 @@ export type Snapshot = {
 	creates: CreateInfo[],
 	/**  Planes whose sessions weren't restored because their root is gone. */
 	restoreSkipped: string[],
+};
+
+export type SourceControlChanged = SourceControlEvent;
+
+/**  `source_control_changed`: a fresh read of a watched plane. */
+export type SourceControlEvent = {
+	planeId: string,
+	repos: Repo[],
 };
 
 export type Status = {

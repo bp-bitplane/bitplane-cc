@@ -15,6 +15,7 @@ import {
   setAllReposCollapsed,
   toggleRepoCollapsed,
   useStore,
+  watchSourceControl,
 } from "../store/store";
 import { Centered } from "../ui/Centered";
 import styles from "./SourceControl.module.css";
@@ -23,6 +24,7 @@ export function SourceControl({ planeId }: { planeId: string }) {
   const sourceControl = useStore((s) => s.sourceControl);
   useEffect(() => {
     void loadSourceControl(planeId);
+    return watchSourceControl(planeId);
   }, [planeId]);
   const current = sourceControl?.planeId === planeId ? sourceControl : null;
   if (current?.error) {

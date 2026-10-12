@@ -1,7 +1,7 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Repo } from "../ipc";
-import { useStore } from "../store/store";
+import { applySourceControl, useStore } from "../store/store";
 import { flush, mockBackend, plane, planesModel, repo, seed } from "../test/fixtures";
 import { run } from "../useShortcuts";
 import { ToolBar } from "./ToolBar";
@@ -125,6 +125,35 @@ describe("Source control", () => {
       await flush();
     });
     expect(backend.called("plane_source_control").at(-1)?.args).toEqual({ planeId: "beta" });
+  });
+
+  it("watches the shown plane while on screen", async () => {
+    const backend = show();
+    await flush();
+    await act(async () => {
+      useStore.setState({ selectedPlaneId: "beta" });
+      await flush();
+    });
+    await act(async () => {
+      useStore.setState({ toolPanelOpen: false });
+      await flush();
+    });
+    expect(backend.called("plane_source_control_watch").map((c) => c.args.planeId)).toEqual([
+      "alpha",
+      null,
+      "beta",
+      null,
+    ]);
+  });
+
+  it("applies pushed reads for the shown plane only", async () => {
+    show([api]);
+    await flush();
+    act(() => applySourceControl({ planeId: "beta", repos: [web] }));
+    expect(screen.queryByRole("region", { name: "web" })).toBeNull();
+    act(() => applySourceControl({ planeId: "alpha", repos: [web] }));
+    expect(section("web")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "api" })).toBeNull();
   });
 
   it("says when a plane has no repos", async () => {

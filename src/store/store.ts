@@ -18,6 +18,7 @@ import {
   type SessionEvent,
   type SessionInfo,
   type Snapshot,
+  type SourceControlEvent,
 } from "../ipc";
 import { detectPlatform, type Platform } from "../keymap";
 import { toolPanelView } from "../tool-bar/toolPanelView";
@@ -131,6 +132,7 @@ export async function connect(onQuitRequested: () => void = requestQuit): Promis
     events.planesChanged.listen((e) => applyPlanes(e.payload)),
     events.sessionChanged.listen((e) => applySession(e.payload)),
     events.createChanged.listen((e) => applyCreate(e.payload)),
+    events.sourceControlChanged.listen((e) => applySourceControl(e.payload)),
     events.quitRequested.listen(() => onQuitRequested()),
   ]);
   loadSnapshot(await commands.snapshot());
@@ -464,6 +466,19 @@ export async function loadSourceControl(planeId: string): Promise<void> {
       set({ sourceControl: { planeId, repos: null, error: String(error), loading: false } });
     }
   }
+}
+
+/** A pushed read wins over any read still in flight. */
+export function applySourceControl({ planeId, repos }: SourceControlEvent): void {
+  if (get().sourceControl?.planeId !== planeId) return;
+  sourceControlRead++;
+  set({ sourceControl: { planeId, repos, error: null, loading: false } });
+}
+
+/** Keep `planeId`'s Source control current while it's on screen; returns a stop. */
+export function watchSourceControl(planeId: string): () => void {
+  void commands.planeSourceControlWatch(planeId).catch(() => undefined);
+  return () => void commands.planeSourceControlWatch(null).catch(() => undefined);
 }
 
 export function toggleRepoCollapsed(path: string): void {
