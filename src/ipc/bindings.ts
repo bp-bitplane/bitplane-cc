@@ -24,6 +24,7 @@ export const commands = {
 	planeCreateCancel: (id: string) => __TAURI_INVOKE<void>("plane_create_cancel", { id }),
 	planeCreateDismiss: (id: string) => __TAURI_INVOKE<void>("plane_create_dismiss", { id }),
 	planeOpenInVscode: (planeId: string) => __TAURI_INVOKE<null>("plane_open_in_vscode", { planeId }),
+	planeSourceControl: (planeId: string) => __TAURI_INVOKE<Repo[]>("plane_source_control", { planeId }),
 	projectList: () => __TAURI_INVOKE<Project[]>("project_list"),
 	quitCheck: () => __TAURI_INVOKE<QuitInfo>("quit_check"),
 	quit: () => __TAURI_INVOKE<void>("quit"),
@@ -74,6 +75,15 @@ export type BusyProcess = {
 	working: boolean,
 };
 
+export type Change = {
+	path: string,
+	kind: ChangeKind,
+	/**  The original path of a rename or copy. */
+	from: string | null,
+};
+
+export type ChangeKind = "modified" | "typeChanged" | "added" | "deleted" | "renamed" | "copied" | "conflicted";
+
 export type CreateArgs = {
 	id: string,
 	branch: string,
@@ -117,6 +127,8 @@ export type Envelope = {
 	problems?: Problem[],
 	remedy?: string | null,
 };
+
+export type Head = { kind: "branch"; name: string } | { kind: "detached"; sha: string };
 
 export type HookStatus = "installed" | "missing" | 
 /**  Installed by an older version of the app. */
@@ -179,6 +191,17 @@ export type QuitInfo = {
  */
 export type QuitRequested = null;
 
+/**  One repo's section in Source control. */
+export type Repo = {
+	name: string,
+	path: string,
+	state: RepoState,
+};
+
+export type RepoState = { kind: "ready"; status: Status } | 
+/**  The worktree folder is gone (bp's `member_worktree_missing`). */
+{ kind: "missing" } | { kind: "failed"; message: string };
+
 export type SessionChanged = SessionEvent;
 
 /**  `session_changed`: one session, or `None` once it's closed. */
@@ -215,6 +238,20 @@ export type Snapshot = {
 	creates: CreateInfo[],
 	/**  Planes whose sessions weren't restored because their root is gone. */
 	restoreSkipped: string[],
+};
+
+export type Status = {
+	head: Head,
+	/**  Absent without an upstream, or when the upstream is gone. */
+	tracking: Tracking | null,
+	staged: Change[],
+	unstaged: Change[],
+	untracked: string[],
+};
+
+export type Tracking = {
+	ahead: number,
+	behind: number,
 };
 
 /* Tauri Specta runtime */

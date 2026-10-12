@@ -41,6 +41,15 @@ async fn list_reads_member_specs() {
         .map(|m| m.member.as_str())
         .collect();
     assert_eq!(members, ["@sos/api", "/repos/web"]);
+    let paths: Vec<_> = planes[0]
+        .members
+        .iter()
+        .map(|m| m.path.clone().unwrap())
+        .collect();
+    assert_eq!(
+        paths,
+        [PathBuf::from("sos/api"), PathBuf::from("projects/web")]
+    );
 }
 
 #[tokio::test]

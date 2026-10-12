@@ -7,6 +7,7 @@ pub mod bp;
 pub mod create;
 pub mod editor;
 pub mod env;
+pub mod git;
 pub mod hooks;
 pub mod ipc;
 pub mod persist;

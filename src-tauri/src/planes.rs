@@ -46,6 +46,8 @@ pub struct Source {
     pub directory: PathBuf,
     pub findings: Vec<String>,
     pub members: Vec<String>,
+    /// The Members' worktrees, relative to `directory`.
+    pub member_paths: Vec<PathBuf>,
 }
 
 impl Source {
@@ -55,6 +57,7 @@ impl Source {
             directory: directory.into(),
             findings: Vec::new(),
             members: Vec::new(),
+            member_paths: Vec::new(),
         }
     }
 }

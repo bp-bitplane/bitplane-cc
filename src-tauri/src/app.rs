@@ -16,7 +16,7 @@ use crate::bp::{self, Bp, BpError, VersionError};
 use crate::create::{CreateEvent, CreateInfo, CreateStatus, Creates};
 use crate::env::{self, CapturedEnv, EnvMap};
 use crate::persist::{self, Persister};
-use crate::planes::{self, PlaneRow, Source, Watcher};
+use crate::planes::{self, PlaneKind, PlaneRow, Source, Watcher};
 use crate::sessions::{Restore, SessionEvent, SessionInfo, Sessions, SpawnConfig};
 
 /// Whether the app can talk to bp, and if not, why.
@@ -324,6 +324,11 @@ impl App {
                                 .into_iter()
                                 .map(|f| f.finding)
                                 .collect(),
+                            member_paths: plane
+                                .members
+                                .iter()
+                                .filter_map(|m| m.path.clone())
+                                .collect(),
                             members: plane.members.into_iter().map(|m| m.member).collect(),
                         })
                         .collect();
@@ -431,6 +436,29 @@ impl App {
             .as_ref()
             .map(|dir| dir.join(plane_id))
             .ok_or_else(|| "the planes directory isn't resolved yet".into())
+    }
+
+    /// What Source control reads for a plane: its root and its Members'
+    /// worktrees, relative to the root.
+    pub fn source_control_target(&self, plane_id: &str) -> Result<(PathBuf, Vec<PathBuf>), String> {
+        let state = self.state.lock().unwrap();
+        let row = state
+            .model
+            .as_ref()
+            .and_then(|m| m.planes.iter().find(|p| p.id == plane_id))
+            .ok_or_else(|| format!("there's no plane called {plane_id}"))?;
+        match row.kind {
+            PlaneKind::Gone => return Err(format!("{plane_id} is gone")),
+            PlaneKind::Creating => return Err(format!("{plane_id} is still being created")),
+            PlaneKind::Plane | PlaneKind::Draft => {}
+        }
+        let members = state
+            .listed
+            .iter()
+            .find(|source| source.id == plane_id)
+            .map(|source| source.member_paths.clone())
+            .unwrap_or_default();
+        Ok((PathBuf::from(&row.directory), members))
     }
 
     /// The environment external tools run in: the captured one once it's known.

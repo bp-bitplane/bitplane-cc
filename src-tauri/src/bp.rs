@@ -108,6 +108,9 @@ pub struct ListedPlane {
 pub struct ListedMember {
     /// `@project` or a repo path, as `bp create` takes it.
     pub member: String,
+    /// The worktree, relative to the plane's root.
+    #[serde(default)]
+    pub path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

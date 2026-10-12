@@ -17,6 +17,7 @@ use crate::app::{App, PlanesModel, Snapshot};
 use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
 use crate::editor;
+use crate::git::{self, Repo};
 use crate::hooks::{self, AgentHooks};
 use crate::planes;
 use crate::quit::{self, QuitInfo};
@@ -59,6 +60,7 @@ pub fn builder() -> Builder<Wry> {
             plane_create_cancel,
             plane_create_dismiss,
             plane_open_in_vscode,
+            plane_source_control,
             project_list,
             quit_check,
             quit,
@@ -194,6 +196,16 @@ fn plane_create_dismiss(app: State<'_, AppState>, id: String) {
 #[specta::specta]
 async fn plane_open_in_vscode(app: State<'_, AppState>, plane_id: String) -> Result<(), String> {
     editor::open_in_vscode(&app.plane_dir(&plane_id)?, &app.tool_env()).await
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn plane_source_control(
+    app: State<'_, AppState>,
+    plane_id: String,
+) -> Result<Vec<Repo>, String> {
+    let (root, members) = app.source_control_target(&plane_id)?;
+    git::source_control(&root, &members, &app.tool_env()).await
 }
 
 #[tauri::command]
