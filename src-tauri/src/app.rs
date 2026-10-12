@@ -121,6 +121,7 @@ struct State {
     planes_dir: Option<PathBuf>,
     status: Option<AppStatus>,
     env_warning: Option<String>,
+    captured_env: Option<EnvMap>,
     listed: Vec<Source>,
     drafts: Vec<Source>,
     refreshed_at: Option<f64>,
@@ -290,6 +291,7 @@ impl App {
             let mut state = self.state.lock().unwrap();
             state.planes_dir = Some(planes::resolve_planes_dir(&captured.vars));
             state.env_warning = captured.warning;
+            state.captured_env = Some(captured.vars);
             state.bp = bp;
             state.bp_version = bp_version;
             state.status = status;
@@ -429,6 +431,16 @@ impl App {
             .as_ref()
             .map(|dir| dir.join(plane_id))
             .ok_or_else(|| "the planes directory isn't resolved yet".into())
+    }
+
+    /// The environment external tools run in: the captured one once it's known.
+    pub fn tool_env(&self) -> EnvMap {
+        self.state
+            .lock()
+            .unwrap()
+            .captured_env
+            .clone()
+            .unwrap_or_else(|| self.original_env.clone())
     }
 
     /// `mkdir` a draft plane, creating the planes directory if needed.

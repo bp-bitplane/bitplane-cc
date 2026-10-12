@@ -20,6 +20,7 @@ describe("matchShortcut", () => {
     expect(matchShortcut("mac", key("Digit0", { metaKey: true }))).toEqual({
       action: "zoomReset",
     });
+    expect(matchShortcut("mac", key("KeyD", { metaKey: true }))).toEqual({ action: "toolPanel" });
   });
 
   it("maps Linux Ctrl+Shift and Ctrl+Alt shortcuts", () => {
@@ -34,6 +35,9 @@ describe("matchShortcut", () => {
       action: "nextTab",
     });
     expect(matchShortcut("linux", key("F5"))).toEqual({ action: "blockReload" });
+    expect(matchShortcut("linux", key("KeyD", { ctrlKey: true, shiftKey: true }))).toEqual({
+      action: "toolPanel",
+    });
   });
 
   it.each([

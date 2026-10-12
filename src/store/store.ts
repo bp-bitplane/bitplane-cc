@@ -19,12 +19,16 @@ import {
   type Snapshot,
 } from "../ipc";
 import { detectPlatform, type Platform } from "../keymap";
+import type { Tool } from "../tool-bar/tools";
 import { findPlane, sessionsOf } from "./selectors";
 import { fromSaved, SAVE_DELAY_MS, toSaved } from "./uiState";
 
 export const DEFAULT_FONT_SIZE = 12;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
+export const DEFAULT_TOOL_PANEL_WIDTH = 320;
+export const MIN_TOOL_PANEL_WIDTH = 220;
+export const MAX_TOOL_PANEL_WIDTH = 640;
 
 export type Dialog =
   | { kind: "palette" }
@@ -63,6 +67,10 @@ export interface State {
   /** Planes showing the dismissible "Post-create script failed" banner. */
   scriptFailed: Record<string, true>;
   notice: string | null;
+  toolPanelOpen: boolean;
+  /** The tool the panel shows when open; kept while it's collapsed. */
+  activeTool: Tool;
+  toolPanelWidth: number;
 }
 
 export const initialState = (): State => ({
@@ -85,6 +93,9 @@ export const initialState = (): State => ({
   fontSize: DEFAULT_FONT_SIZE,
   scriptFailed: {},
   notice: null,
+  toolPanelOpen: false,
+  activeTool: "sourceControl",
+  toolPanelWidth: DEFAULT_TOOL_PANEL_WIDTH,
 });
 
 export const useStore = create<State>()(initialState);
@@ -115,6 +126,9 @@ export async function connect(onQuitRequested: () => void = requestQuit): Promis
 export function loadUiState(json: string | null): void {
   const saved = fromSaved(json, get().sessions);
   if (saved.fontSize !== undefined) saved.fontSize = clampFontSize(saved.fontSize);
+  if (saved.toolPanelWidth !== undefined) {
+    saved.toolPanelWidth = clampToolPanelWidth(saved.toolPanelWidth);
+  }
   set((state) => ({ ...saved, activeTab: { ...state.activeTab, ...saved.activeTab } }));
 }
 
@@ -393,6 +407,31 @@ export function zoom(step: 1 | -1 | 0): void {
   }));
 }
 
+/** Clicking the active tool collapses the panel; any other tool opens in it. */
+export function selectTool(tool: Tool): void {
+  set((state) =>
+    state.toolPanelOpen && state.activeTool === tool
+      ? { toolPanelOpen: false }
+      : { toolPanelOpen: true, activeTool: tool },
+  );
+}
+
+export function toggleToolPanel(): void {
+  set((state) => ({ toolPanelOpen: !state.toolPanelOpen }));
+}
+
+export function setToolPanelWidth(width: number): void {
+  set({ toolPanelWidth: clampToolPanelWidth(width) });
+}
+
+export async function openInVscode(planeId: string): Promise<void> {
+  try {
+    await commands.planeOpenInVscode(planeId);
+  } catch (error) {
+    set({ notice: String(error) });
+  }
+}
+
 export async function openAgentResume(): Promise<void> {
   set({ dialog: { kind: "agentResume", hooks: null, error: null } });
   try {
@@ -431,6 +470,10 @@ export async function quit(): Promise<void> {
 
 function clampFontSize(size: number): number {
   return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, size));
+}
+
+function clampToolPanelWidth(width: number): number {
+  return Math.round(Math.min(MAX_TOOL_PANEL_WIDTH, Math.max(MIN_TOOL_PANEL_WIDTH, width)));
 }
 
 function activeSessionId(): number | undefined {

@@ -23,6 +23,7 @@ export const commands = {
 	planeCreate: (args: CreateArgs) => __TAURI_INVOKE<null>("plane_create", { args }),
 	planeCreateCancel: (id: string) => __TAURI_INVOKE<void>("plane_create_cancel", { id }),
 	planeCreateDismiss: (id: string) => __TAURI_INVOKE<void>("plane_create_dismiss", { id }),
+	planeOpenInVscode: (planeId: string) => __TAURI_INVOKE<null>("plane_open_in_vscode", { planeId }),
 	projectList: () => __TAURI_INVOKE<Project[]>("project_list"),
 	quitCheck: () => __TAURI_INVOKE<QuitInfo>("quit_check"),
 	quit: () => __TAURI_INVOKE<void>("quit"),

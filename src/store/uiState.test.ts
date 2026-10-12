@@ -1,5 +1,5 @@
 import { mockBackend, planesModel, seed, session, sessionsById } from "../test/fixtures";
-import { saveUiStateOnChange, useStore, zoom } from "./store";
+import { loadUiState, saveUiStateOnChange, useStore, zoom } from "./store";
 import { fromSaved, SAVE_DELAY_MS, toSaved } from "./uiState";
 
 describe("UI state", () => {
@@ -15,7 +15,25 @@ describe("UI state", () => {
       activeTab: { alpha: "k1" },
       collapsed: {},
       fontSize: 12,
+      toolPanel: { open: false, tool: "sourceControl", width: 320 },
     });
+  });
+
+  it("restores the tool panel and clamps its width", () => {
+    seed();
+    loadUiState(JSON.stringify({ toolPanel: { open: true, tool: "sourceControl", width: 9999 } }));
+    const state = useStore.getState();
+    expect([state.toolPanelOpen, state.activeTool, state.toolPanelWidth]).toEqual([
+      true,
+      "sourceControl",
+      640,
+    ]);
+  });
+
+  it("ignores an unknown tool", () => {
+    expect(fromSaved(JSON.stringify({ toolPanel: { tool: "chat" } }), {})).not.toHaveProperty(
+      "activeTool",
+    );
   });
 
   it("drops tabs whose key now belongs to another plane", () => {

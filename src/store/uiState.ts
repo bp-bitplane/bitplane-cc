@@ -3,6 +3,7 @@
  * key: session ids start over with every launch.
  */
 import type { SessionInfo } from "../ipc";
+import { TOOLS, type Tool } from "../tool-bar/tools";
 import type { State } from "./store";
 
 export const SAVE_DELAY_MS = 300;
@@ -13,6 +14,7 @@ export interface SavedUiState {
   activeTab: Record<string, string>;
   collapsed: Record<string, boolean>;
   fontSize: number;
+  toolPanel: { open: boolean; tool: Tool; width: number };
 }
 
 export function toSaved(state: State): SavedUiState {
@@ -26,6 +28,11 @@ export function toSaved(state: State): SavedUiState {
     activeTab,
     collapsed: state.collapsed,
     fontSize: state.fontSize,
+    toolPanel: {
+      open: state.toolPanelOpen,
+      tool: state.activeTool,
+      width: state.toolPanelWidth,
+    },
   };
 }
 
@@ -33,7 +40,18 @@ export function toSaved(state: State): SavedUiState {
 export function fromSaved(
   json: string | null,
   sessions: Record<number, SessionInfo>,
-): Partial<Pick<State, "selectedPlaneId" | "activeTab" | "collapsed" | "fontSize">> {
+): Partial<
+  Pick<
+    State,
+    | "selectedPlaneId"
+    | "activeTab"
+    | "collapsed"
+    | "fontSize"
+    | "toolPanelOpen"
+    | "activeTool"
+    | "toolPanelWidth"
+  >
+> {
   const saved = parse(json);
   if (!saved) return {};
   const idByKey = new Map(Object.values(sessions).map((s) => [s.key, s.id]));
@@ -53,6 +71,12 @@ export function fromSaved(
       (entry): entry is [string, boolean] => typeof entry[1] === "boolean",
     ),
   );
+  const toolPanel = object(saved.toolPanel);
+  if (typeof toolPanel.open === "boolean") result.toolPanelOpen = toolPanel.open;
+  if (TOOLS.some((tool) => tool === toolPanel.tool)) result.activeTool = toolPanel.tool as Tool;
+  if (typeof toolPanel.width === "number" && Number.isFinite(toolPanel.width)) {
+    result.toolPanelWidth = toolPanel.width;
+  }
   return result;
 }
 
@@ -69,5 +93,11 @@ function parse(json: string | null): Record<string, unknown> | null {
 }
 
 function entries(value: unknown): [string, unknown][] {
-  return value && typeof value === "object" && !Array.isArray(value) ? Object.entries(value) : [];
+  return Object.entries(object(value));
+}
+
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }

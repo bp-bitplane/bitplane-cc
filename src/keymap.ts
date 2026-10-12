@@ -21,6 +21,7 @@ export type Action =
   | "palette"
   | "createPlane"
   | "refresh"
+  | "toolPanel"
   | "zoomIn"
   | "zoomOut"
   | "zoomReset"
@@ -52,6 +53,7 @@ export const KEYMAP: Record<Platform, Shortcut[]> = {
     { action: "palette", combos: ["Meta+KeyP"], label: "⌘P" },
     { action: "createPlane", combos: ["Shift+Meta+KeyN"], label: "⌘⇧N" },
     { action: "refresh", combos: ["Shift+Meta+KeyR"], label: "⌘⇧R" },
+    { action: "toolPanel", combos: ["Meta+KeyD"], label: "⌘D" },
     { action: "zoomIn", combos: ["Meta+Equal", "Shift+Meta+Equal"], label: "⌘=" },
     { action: "zoomOut", combos: ["Meta+Minus"], label: "⌘-" },
     { action: "zoomReset", combos: ["Meta+Digit0"], label: "⌘0" },
@@ -70,6 +72,7 @@ export const KEYMAP: Record<Platform, Shortcut[]> = {
     { action: "palette", combos: ["Ctrl+Shift+KeyP"], label: "Ctrl+Shift+P" },
     { action: "createPlane", combos: ["Ctrl+Shift+KeyN"], label: "Ctrl+Shift+N" },
     { action: "refresh", combos: ["Ctrl+Shift+KeyR"], label: "Ctrl+Shift+R" },
+    { action: "toolPanel", combos: ["Ctrl+Shift+KeyD"], label: "Ctrl+Shift+D" },
     { action: "zoomIn", combos: ["Ctrl+Shift+Equal"], label: "Ctrl+Shift+=" },
     { action: "zoomOut", combos: ["Ctrl+Shift+Minus"], label: "Ctrl+Shift+-" },
     { action: "zoomReset", combos: ["Ctrl+Shift+Digit0"], label: "Ctrl+Shift+0" },

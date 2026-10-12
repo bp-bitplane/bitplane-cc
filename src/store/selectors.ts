@@ -23,6 +23,11 @@ export function activeSession(
   return tabs.find((s) => s.id === state.activeTab[planeId]) ?? tabs[0];
 }
 
+/** The plane tools show: the active tab's, else the Sidebar selection's. */
+export function shownPlaneId(state: Pick<State, "sessions" | "activeTab" | "selectedPlaneId">) {
+  return activeSession(state, state.selectedPlaneId)?.planeId ?? state.selectedPlaneId;
+}
+
 /** `N · title`, N being the tab's position (spec §4.2). */
 export function tabLabel(session: SessionInfo, position: number): string {
   return `${position} · ${sessionTitle(session)}`;

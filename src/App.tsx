@@ -4,6 +4,8 @@ import { Dialogs } from "./dialogs/Dialogs";
 import { MainArea } from "./main-area/MainArea";
 import { Sidebar } from "./sidebar/Sidebar";
 import { connect } from "./store/store";
+import { ToolBar } from "./tool-bar/ToolBar";
+import { ToolPanel } from "./tool-bar/ToolPanel";
 import { useShortcuts } from "./useShortcuts";
 import { useTitlebarOverlay } from "./useTitlebarOverlay";
 
@@ -21,6 +23,8 @@ export function App() {
     <div className={styles.app} data-titlebar={overlay ? "overlay" : undefined}>
       <Sidebar />
       <MainArea />
+      <ToolPanel />
+      <ToolBar />
       <Dialogs />
     </div>
   );

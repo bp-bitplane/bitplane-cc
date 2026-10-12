@@ -11,6 +11,7 @@ import {
   requestCloseSession,
   requestQuit,
   togglePalette,
+  toggleToolPanel,
   useStore,
   zoom,
 } from "./store/store";
@@ -67,6 +68,9 @@ export function run({ action, digit = 1 }: Match): void {
       break;
     case "refresh":
       void refresh();
+      break;
+    case "toolPanel":
+      toggleToolPanel();
       break;
     case "zoomIn":
       zoom(1);

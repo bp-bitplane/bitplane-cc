@@ -1,0 +1,42 @@
+.bar {
+  width: 44px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+
+.head {
+  align-self: stretch;
+  height: var(--bar-height);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.tools,
+.pinned {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.tools {
+  flex: 1;
+}
+
+.tool {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--dim);
+}
+
+.tool:hover:not(:disabled) {
+  color: var(--text);
+}
