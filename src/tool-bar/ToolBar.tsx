@@ -1,4 +1,4 @@
-import { GitBranch, type LucideIcon, SquareCode } from "lucide-react";
+import { Files, GitBranch, type LucideIcon, SquareCode } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { labelFor } from "../keymap";
 import { openInVscode, selectTool, useStore } from "../store/store";
@@ -8,6 +8,7 @@ import { TOOL_LABELS, TOOLS, type Tool } from "./tools";
 
 const TOOL_ICONS: Record<Tool, LucideIcon> = {
   sourceControl: GitBranch,
+  files: Files,
 };
 
 export function ToolBar() {

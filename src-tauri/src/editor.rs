@@ -1,4 +1,4 @@
-//! Opening a plane in an external editor.
+//! Opening a plane, or a file in it, in an external editor.
 
 use std::path::Path;
 
@@ -6,17 +6,28 @@ use tokio::process::Command;
 
 use crate::bp;
 use crate::env::EnvMap;
+use crate::files;
 
 /// Run `code <dir>`, found on the captured `PATH`.
 pub async fn open_in_vscode(dir: &Path, env: &EnvMap) -> Result<(), String> {
     if !dir.is_dir() {
         return Err(format!("{} no longer exists", dir.display()));
     }
+    run_code(&[dir.as_os_str()], dir, env).await
+}
+
+/// Run `code -g <file>` for `relative` inside the plane `root`.
+pub async fn open_file_in_vscode(root: &Path, relative: &str, env: &EnvMap) -> Result<(), String> {
+    let file = files::resolve(root, relative)?;
+    run_code(&["-g".as_ref(), file.as_os_str()], root, env).await
+}
+
+async fn run_code(args: &[&std::ffi::OsStr], dir: &Path, env: &EnvMap) -> Result<(), String> {
     let program = bp::find_on_path("code", env.get("PATH").map(String::as_str)).ok_or(
         "VS Code's `code` command isn't on your PATH. In VS Code, run \"Shell Command: Install 'code' command in PATH\".",
     )?;
     let output = Command::new(&program)
-        .arg(dir)
+        .args(args)
         .env_clear()
         .envs(env)
         .current_dir(dir)
@@ -61,6 +72,52 @@ mod tests {
             .unwrap();
         let args = std::fs::read_to_string(record).unwrap();
         assert_eq!(args.trim(), root.path().display().to_string());
+    }
+
+    #[tokio::test]
+    async fn opens_a_file_with_goto() {
+        let bin = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("src")).unwrap();
+        std::fs::write(root.path().join("src/a.rs"), "").unwrap();
+        let record = bin.path().join("args");
+        fake_code(
+            bin.path(),
+            &format!("echo \"$1 $2\" > {}", record.display()),
+        );
+        open_file_in_vscode(root.path(), "src/a.rs", &env_with_path(bin.path()))
+            .await
+            .unwrap();
+        let args = std::fs::read_to_string(record).unwrap();
+        let file = root.path().canonicalize().unwrap().join("src/a.rs");
+        assert_eq!(args.trim(), format!("-g {}", file.display()));
+    }
+
+    #[tokio::test]
+    async fn opens_a_file_behind_a_symlink_out_of_the_plane() {
+        let bin = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("a.md"), "").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("notes")).unwrap();
+        let record = bin.path().join("args");
+        fake_code(bin.path(), &format!("echo \"$2\" > {}", record.display()));
+        open_file_in_vscode(root.path(), "notes/a.md", &env_with_path(bin.path()))
+            .await
+            .unwrap();
+        let args = std::fs::read_to_string(record).unwrap();
+        let file = outside.path().canonicalize().unwrap().join("a.md");
+        assert_eq!(args.trim(), file.display().to_string());
+    }
+
+    #[tokio::test]
+    async fn refuses_a_file_outside_the_plane() {
+        let bin = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let error = open_file_in_vscode(root.path(), "../etc", &env_with_path(bin.path()))
+            .await
+            .unwrap_err();
+        assert!(error.contains("inside the plane"), "{error}");
     }
 
     #[tokio::test]

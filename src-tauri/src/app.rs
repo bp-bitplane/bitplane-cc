@@ -15,6 +15,7 @@ use crate::agents;
 use crate::bp::{self, Bp, BpError, VersionError};
 use crate::create::{CreateEvent, CreateInfo, CreateStatus, Creates};
 use crate::env::{self, CapturedEnv, EnvMap};
+use crate::files_watch::{self, FilesEvent, FilesWatch};
 use crate::git;
 use crate::git_watch::{GitWatch, Scope, SourceControlEvent};
 use crate::persist::{self, Persister};
@@ -100,6 +101,7 @@ pub struct Emitters {
     pub session: Arc<dyn Fn(SessionEvent) + Send + Sync>,
     pub create: Arc<dyn Fn(CreateEvent) + Send + Sync>,
     pub source_control: Arc<dyn Fn(SourceControlEvent) + Send + Sync>,
+    pub files: Arc<dyn Fn(FilesEvent) + Send + Sync>,
 }
 
 pub struct App {
@@ -120,6 +122,10 @@ pub struct App {
     git_watch: Mutex<Option<GitWatch>>,
     source_control_needed: Arc<Notify>,
     emit_source_control: Arc<dyn Fn(SourceControlEvent) + Send + Sync>,
+    /// The plane Files is showing and its expanded folders; `None` while it's off screen.
+    files_target: Mutex<Option<(String, Vec<String>)>>,
+    files_watch: Mutex<Option<FilesWatch>>,
+    emit_files: Arc<dyn Fn(FilesEvent) + Send + Sync>,
 }
 
 #[derive(Default)]
@@ -208,6 +214,9 @@ impl App {
             git_watch: Mutex::new(None),
             source_control_needed: Arc::new(Notify::new()),
             emit_source_control: emitters.source_control,
+            files_target: Mutex::new(None),
+            files_watch: Mutex::new(None),
+            emit_files: emitters.files,
         });
         let _ = this.set(Arc::downgrade(&app));
         app
@@ -307,13 +316,40 @@ impl App {
                 app.read_source_control().await;
             }
         });
+
+        let emit = Arc::clone(&self.emit_files);
+        match FilesWatch::new(emit) {
+            Ok(watch) => *self.files_watch.lock().unwrap() = Some(watch),
+            Err(error) => eprintln!("bitplane-cc: files watcher unavailable: {error}"),
+        }
+    }
+
+    /// Watch `plane_id`'s expanded folders for Files, or stop with `None`.
+    pub fn watch_files(self: &Arc<Self>, target: Option<(String, Vec<String>)>) {
+        *self.files_target.lock().unwrap() = target;
+        let app = Arc::clone(self);
+        tauri::async_runtime::spawn_blocking(move || app.retarget_files_watch());
+    }
+
+    /// The latest target always wins, as it's read under the watcher's lock.
+    fn retarget_files_watch(&self) {
+        let mut watch = self.files_watch.lock().unwrap();
+        let Some(watch) = watch.as_mut() else { return };
+        let target = self.files_target.lock().unwrap().clone();
+        let scope = target
+            .and_then(|(id, dirs)| {
+                let (root, _) = self.source_control_target(&id).ok()?;
+                Some(files_watch::Scope::of(&id, &root, &dirs))
+            })
+            .unwrap_or_default();
+        watch.set_scope(scope);
     }
 
     /// Point the git watcher at `plane_id`'s repos, or stop it with `None`.
     pub fn watch_source_control(self: &Arc<Self>, plane_id: Option<String>) {
         *self.source_control_plane.lock().unwrap() = plane_id;
         let app = Arc::clone(self);
-        tokio::task::spawn_blocking(move || app.retarget_git_watch());
+        tauri::async_runtime::spawn_blocking(move || app.retarget_git_watch());
     }
 
     /// Re-read what the watcher should cover; the latest plane always wins,
@@ -636,6 +672,31 @@ fn now_millis() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn quiet_app() -> Arc<App> {
+        App::new(
+            EnvMap::new(),
+            "0.0.0".into(),
+            None,
+            Emitters {
+                planes: Arc::new(|_| {}),
+                session: Arc::new(|_| {}),
+                create: Arc::new(|_| {}),
+                source_control: Arc::new(|_| {}),
+                files: Arc::new(|_| {}),
+            },
+        )
+    }
+
+    /// Sync commands run on the main thread, outside any Tokio runtime.
+    #[test]
+    fn watch_commands_run_outside_a_runtime() {
+        let app = quiet_app();
+        app.watch_source_control(Some("alpha".into()));
+        app.watch_files(Some(("alpha".into(), vec![String::new()])));
+        app.watch_source_control(None);
+        app.watch_files(None);
+    }
 
     #[test]
     fn draft_creates_the_planes_dir_and_refuses_existing() {

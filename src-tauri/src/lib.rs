@@ -7,6 +7,8 @@ pub mod bp;
 pub mod create;
 pub mod editor;
 pub mod env;
+pub mod files;
+pub mod files_watch;
 pub mod git;
 pub mod git_watch;
 pub mod hooks;
@@ -25,7 +27,7 @@ use tauri_specta::Event;
 
 use crate::app::{App, DataDir, Emitters};
 use crate::ipc::{
-    CreateChanged, PlanesChanged, QuitRequested, SessionChanged, SourceControlChanged,
+    CreateChanged, FilesChanged, PlanesChanged, QuitRequested, SessionChanged, SourceControlChanged,
 };
 
 /// Where tauri-specta writes the TypeScript bindings.
@@ -72,6 +74,12 @@ pub fn run() {
                     let handle = handle.clone();
                     Arc::new(move |event| {
                         let _ = SourceControlChanged(event).emit(&handle);
+                    })
+                },
+                files: {
+                    let handle = handle.clone();
+                    Arc::new(move |event| {
+                        let _ = FilesChanged(event).emit(&handle);
                     })
                 },
             };

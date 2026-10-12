@@ -1,22 +1,3 @@
-.actions {
-  display: flex;
-  margin-left: auto;
-  gap: 2px;
-}
-
-.iconButton {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  color: var(--dim);
-}
-
-.iconButton:hover {
-  color: var(--text);
-}
-
 .repos {
   padding: 6px 0;
 }

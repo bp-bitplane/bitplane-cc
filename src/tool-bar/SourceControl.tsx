@@ -8,7 +8,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
-import type { Change, ChangeKind, Head, Repo, Status } from "../ipc";
+import type { Change, ChangeKind, Repo, Status } from "../ipc";
 import { labelFor } from "../keymap";
 import {
   loadSourceControl,
@@ -18,6 +18,8 @@ import {
   watchSourceControl,
 } from "../store/store";
 import { Centered } from "../ui/Centered";
+import { headLabel } from "./files/filesTree";
+import { PanelActions, PanelButton } from "./PanelButton";
 import styles from "./SourceControl.module.css";
 
 export function SourceControl({ planeId }: { planeId: string }) {
@@ -54,20 +56,20 @@ export function SourceControl({ planeId }: { planeId: string }) {
 export function SourceControlActions({ planeId }: { planeId: string }) {
   const platform = useStore((s) => s.platform);
   return (
-    <span className={styles.actions}>
-      <IconButton title="Expand all" onClick={() => setAllReposCollapsed(false)}>
+    <PanelActions>
+      <PanelButton title="Expand all" onClick={() => setAllReposCollapsed(false)}>
         <ChevronsUpDown size={14} strokeWidth={1.75} />
-      </IconButton>
-      <IconButton title="Collapse all" onClick={() => setAllReposCollapsed(true)}>
+      </PanelButton>
+      <PanelButton title="Collapse all" onClick={() => setAllReposCollapsed(true)}>
         <ChevronsDownUp size={14} strokeWidth={1.75} />
-      </IconButton>
-      <IconButton
+      </PanelButton>
+      <PanelButton
         title={`Refresh (${labelFor(platform, "refresh")})`}
         onClick={() => void loadSourceControl(planeId)}
       >
         <RefreshCw size={14} strokeWidth={1.75} />
-      </IconButton>
-    </span>
+      </PanelButton>
+    </PanelActions>
   );
 }
 
@@ -189,32 +191,6 @@ function Group({ title, changes, letter }: { title: string; changes: Change[]; l
 
 function Row({ children, warn = false }: { children: ReactNode; warn?: boolean }) {
   return <p className={`${styles.row} ${warn ? styles.warnRow : ""}`}>{children}</p>;
-}
-
-function IconButton({
-  title,
-  onClick,
-  children,
-}: {
-  title: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={styles.iconButton}
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-function headLabel(head: Head): string {
-  return head.kind === "branch" ? head.name : head.sha;
 }
 
 function fileName(path: string): string {

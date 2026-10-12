@@ -23,6 +23,7 @@ export type Action =
   | "refresh"
   | "toolPanel"
   | "sourceControl"
+  | "files"
   | "zoomIn"
   | "zoomOut"
   | "zoomReset"
@@ -56,6 +57,7 @@ export const KEYMAP: Record<Platform, Shortcut[]> = {
     { action: "refresh", combos: ["Shift+Meta+KeyR"], label: "⌘⇧R" },
     { action: "toolPanel", combos: ["Meta+KeyD"], label: "⌘D" },
     { action: "sourceControl", combos: ["Shift+Meta+KeyS"], label: "⌘⇧S" },
+    { action: "files", combos: ["Shift+Meta+KeyE"], label: "⌘⇧E" },
     { action: "zoomIn", combos: ["Meta+Equal", "Shift+Meta+Equal"], label: "⌘=" },
     { action: "zoomOut", combos: ["Meta+Minus"], label: "⌘-" },
     { action: "zoomReset", combos: ["Meta+Digit0"], label: "⌘0" },
@@ -76,6 +78,7 @@ export const KEYMAP: Record<Platform, Shortcut[]> = {
     { action: "refresh", combos: ["Ctrl+Shift+KeyR"], label: "Ctrl+Shift+R" },
     { action: "toolPanel", combos: ["Ctrl+Shift+KeyD"], label: "Ctrl+Shift+D" },
     { action: "sourceControl", combos: ["Ctrl+Shift+KeyS"], label: "Ctrl+Shift+S" },
+    { action: "files", combos: ["Ctrl+Shift+KeyE"], label: "Ctrl+Shift+E" },
     { action: "zoomIn", combos: ["Ctrl+Shift+Equal"], label: "Ctrl+Shift+=" },
     { action: "zoomOut", combos: ["Ctrl+Shift+Minus"], label: "Ctrl+Shift+-" },
     { action: "zoomReset", combos: ["Ctrl+Shift+Digit0"], label: "Ctrl+Shift+0" },

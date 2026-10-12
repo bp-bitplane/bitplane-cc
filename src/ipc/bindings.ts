@@ -30,6 +30,14 @@ export const commands = {
 	 *  `None` stops. Sync, so calls apply in the order the frontend made them.
 	 */
 	planeSourceControlWatch: (planeId: string | null) => __TAURI_INVOKE<void>("plane_source_control_watch", { planeId }),
+	/**  One folder of a plane for Files; `path` is relative to the plane root. */
+	planeListDir: (planeId: string, path: string) => __TAURI_INVOKE<FileEntry[]>("plane_list_dir", { planeId, path }),
+	/**
+	 *  Report changes in `dirs` of `plane_id` through `files_changed`; `None`
+	 *  stops. Sync, so calls apply in the order the frontend made them.
+	 */
+	planeFilesWatch: (planeId: string | null, dirs: string[]) => __TAURI_INVOKE<void>("plane_files_watch", { planeId, dirs }),
+	planeOpenFile: (planeId: string, path: string) => __TAURI_INVOKE<null>("plane_open_file", { planeId, path }),
 	projectList: () => __TAURI_INVOKE<Project[]>("project_list"),
 	quitCheck: () => __TAURI_INVOKE<QuitInfo>("quit_check"),
 	quit: () => __TAURI_INVOKE<void>("quit"),
@@ -43,6 +51,7 @@ export const commands = {
 /** Events */
 export const events = {
 	createChanged: makeEvent<CreateChanged>("create-changed"),
+	filesChanged: makeEvent<FilesChanged>("files-changed"),
 	planesChanged: makeEvent<PlanesChanged>("planes-changed"),
 	quitRequested: makeEvent<QuitRequested>("quit-requested"),
 	sessionChanged: makeEvent<SessionChanged>("session-changed"),
@@ -132,6 +141,24 @@ export type Envelope = {
 	message: string,
 	problems?: Problem[],
 	remedy?: string | null,
+};
+
+export type FileEntry = {
+	name: string,
+	kind: FileKind,
+	/**  Matched by the containing repo's ignore rules, or `.git` itself. */
+	ignored: boolean,
+};
+
+export type FileKind = "file" | "directory";
+
+export type FilesChanged = FilesEvent;
+
+/**  `files_changed`: folders of a watched plane to list again. */
+export type FilesEvent = {
+	planeId: string,
+	/**  Relative to the plane root; `""` is the root. */
+	dirs: string[],
 };
 
 export type Head = { kind: "branch"; name: string } | { kind: "detached"; sha: string };

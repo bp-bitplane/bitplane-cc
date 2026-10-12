@@ -11,6 +11,7 @@ import {
   commands,
   type Envelope,
   events,
+  type FilesEvent,
   type PlaneRow,
   type PlanesModel,
   type QuitInfo,
@@ -77,6 +78,8 @@ export interface State {
   sourceControl: SourceControl | null;
   /** Repo path → collapsed in Source control; never saved. */
   repoCollapsed: Record<string, boolean>;
+  /** Plane id → folders expanded in Files, as tree paths; never saved. */
+  filesExpanded: Record<string, string[]>;
 }
 
 /** The last Source control read, for one plane. */
@@ -113,6 +116,7 @@ export const initialState = (): State => ({
   toolPanelWidth: DEFAULT_TOOL_PANEL_WIDTH,
   sourceControl: null,
   repoCollapsed: {},
+  filesExpanded: {},
 });
 
 export const useStore = create<State>()(initialState);
@@ -126,6 +130,14 @@ const set = useStore.setState;
 /** Bumped per Source control read, so a slow reply for another plane is dropped. */
 let sourceControlRead = 0;
 
+/** Folders of a plane Files should list again; `"all"` after a refresh. */
+export interface FilesSignal {
+  planeId: string;
+  dirs: string[] | "all";
+}
+
+const filesListeners = new Set<(signal: FilesSignal) => void>();
+
 /** Load the snapshot and follow backend events. Returns an unsubscribe. */
 export async function connect(onQuitRequested: () => void = requestQuit): Promise<() => void> {
   const unlisten = await Promise.all([
@@ -133,6 +145,7 @@ export async function connect(onQuitRequested: () => void = requestQuit): Promis
     events.sessionChanged.listen((e) => applySession(e.payload)),
     events.createChanged.listen((e) => applyCreate(e.payload)),
     events.sourceControlChanged.listen((e) => applySourceControl(e.payload)),
+    events.filesChanged.listen((e) => applyFilesChanged(e.payload)),
     events.quitRequested.listen(() => onQuitRequested()),
   ]);
   loadSnapshot(await commands.snapshot());
@@ -386,7 +399,8 @@ export function dismissNotice(): void {
 
 /** Capture the environment again and re-read the plane list (also every Retry). */
 export async function refresh(): Promise<void> {
-  const planeId = sourceControlPlaneId();
+  const planeId = shownToolPlaneId();
+  if (planeId && get().activeTool === "files") refreshFiles(planeId);
   await Promise.all([commands.refresh(), planeId && loadSourceControl(planeId)]);
 }
 
@@ -497,6 +511,38 @@ export function setAllReposCollapsed(collapsed: boolean): void {
   }));
 }
 
+export function setFilesExpanded(planeId: string, paths: string[]): void {
+  set((state) => ({ filesExpanded: { ...state.filesExpanded, [planeId]: paths } }));
+}
+
+/** Follow which folders of which plane Files should list again; returns a stop. */
+export function onFilesSignal(listener: (signal: FilesSignal) => void): () => void {
+  filesListeners.add(listener);
+  return () => filesListeners.delete(listener);
+}
+
+export function applyFilesChanged({ planeId, dirs }: FilesEvent): void {
+  for (const listener of filesListeners) listener({ planeId, dirs });
+}
+
+export function refreshFiles(planeId: string): void {
+  for (const listener of filesListeners) listener({ planeId, dirs: "all" });
+}
+
+/** Keep `dirs` of `planeId` watched while Files shows them; returns a stop. */
+export function watchFiles(planeId: string, dirs: string[]): () => void {
+  void commands.planeFilesWatch(planeId, dirs).catch(() => undefined);
+  return () => void commands.planeFilesWatch(null, []).catch(() => undefined);
+}
+
+export async function openFile(planeId: string, path: string): Promise<void> {
+  try {
+    await commands.planeOpenFile(planeId, path);
+  } catch (error) {
+    set({ notice: String(error) });
+  }
+}
+
 export async function openInVscode(planeId: string): Promise<void> {
   try {
     await commands.planeOpenInVscode(planeId);
@@ -593,10 +639,10 @@ async function onCreateFinished(create: CreateInfo): Promise<void> {
   }
 }
 
-/** The plane Source control is showing, or `null` when it isn't on screen. */
-function sourceControlPlaneId(): string | null {
+/** The plane the open tool is showing, or `null` when no tool is on screen. */
+function shownToolPlaneId(): string | null {
   const state = get();
-  if (!state.toolPanelOpen || state.activeTool !== "sourceControl") return null;
+  if (!state.toolPanelOpen) return null;
   const view = toolPanelView(state);
   return view.screen === null ? view.planeId : null;
 }

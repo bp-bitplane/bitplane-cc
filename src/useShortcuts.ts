@@ -76,6 +76,9 @@ export function run({ action, digit = 1 }: Match): void {
     case "sourceControl":
       selectTool("sourceControl");
       break;
+    case "files":
+      selectTool("files");
+      break;
     case "zoomIn":
       zoom(1);
       break;

@@ -7,10 +7,11 @@ import {
   useStore,
 } from "../store/store";
 import { Centered } from "../ui/Centered";
+import { Files, FilesActions } from "./files/Files";
 import { SourceControl, SourceControlActions } from "./SourceControl";
 import styles from "./ToolPanel.module.css";
 import { type ToolPanelView, toolPanelView } from "./toolPanelView";
-import { TOOL_LABELS } from "./tools";
+import { TOOL_LABELS, type Tool } from "./tools";
 
 const KEYBOARD_STEP = 16;
 
@@ -25,19 +26,35 @@ export function ToolPanel() {
       <ResizeHandle width={width} />
       <header className={styles.head} data-tauri-drag-region>
         <span>{TOOL_LABELS[tool]}</span>
-        {view.screen === null && view.planeId && tool === "sourceControl" && (
-          <SourceControlActions planeId={view.planeId} />
-        )}
+        {view.screen === null && view.planeId && <ToolActions tool={tool} planeId={view.planeId} />}
       </header>
       <div className={styles.body}>
         {view.screen === null && view.planeId ? (
-          <SourceControl planeId={view.planeId} />
+          <ToolContent tool={tool} planeId={view.planeId} />
         ) : (
           <Notice view={view} />
         )}
       </div>
     </aside>
   );
+}
+
+function ToolContent({ tool, planeId }: { tool: Tool; planeId: string }) {
+  switch (tool) {
+    case "sourceControl":
+      return <SourceControl planeId={planeId} />;
+    case "files":
+      return <Files planeId={planeId} />;
+  }
+}
+
+function ToolActions({ tool, planeId }: { tool: Tool; planeId: string }) {
+  switch (tool) {
+    case "sourceControl":
+      return <SourceControlActions planeId={planeId} />;
+    case "files":
+      return <FilesActions planeId={planeId} />;
+  }
 }
 
 function Notice({ view }: { view: ToolPanelView }) {
