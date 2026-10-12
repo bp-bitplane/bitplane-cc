@@ -1,0 +1,3 @@
+# Read git through the CLI instead of linking a git library
+
+The backend reads repository state by running `git` (`status --porcelain=v2 --branch`) and parsing its output. It does not link `git2` or `gix`. The CLI is what the agents and the user run in the same worktrees, so its answer always agrees with theirs: it honours the user's git config, linked-worktree layout, `core.fsmonitor` and untracked-cache settings, and new index formats, none of which a library is guaranteed to follow. Porcelain v2 is git's documented machine-readable contract. This matches how the app talks to bitplane (ADR 0002). The cost is one process per repo per refresh, and a `git` binary on `PATH` is now required.

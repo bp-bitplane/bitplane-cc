@@ -8,6 +8,10 @@ A desktop workspace for bitplane: pick a plane, work in terminal sessions rooted
 A bitplane plane, used exactly as bitplane defines it: a named set of git worktrees sharing one lifecycle, living in its own plane directory.
 _Avoid_: Workspace, project
 
+**Member**:
+A bitplane member, used exactly as bitplane defines it: one git worktree belonging to a plane.
+_Avoid_: Worktree (on its own), project, repo (when meaning a plane's member)
+
 **Plane root**:
 The plane's directory; every new session starts here.
 _Avoid_: Plane path, plane folder
@@ -47,3 +51,15 @@ _Avoid_: Agent binding, resume token
 **Restore**:
 Reopening, on launch, the tabs that were open when the app last stopped, each with a fresh shell in its plane and its agent session resumed.
 _Avoid_: Reattach (a reload reattaches to running sessions), persist
+
+**Tool bar**:
+The vertical strip of icons on the right edge; always visible, it switches the tool panel between tools and holds plane actions such as opening the plane in VS Code.
+_Avoid_: Sidebar (that is the plane list on the left), activity bar
+
+**Tool**:
+One view of the active plane that the tool bar can show in the tool panel, such as Source control or Files.
+_Avoid_: Panel, view, extension
+
+**Tool panel**:
+The resizable area next to the tool bar that shows the active tool for the plane of the active tab; collapsed when no tool is active.
+_Avoid_: Right sidebar, drawer
