@@ -18,7 +18,8 @@
     "format:check": "biome format . && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
     "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml",
     "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "dmg": "pnpm tauri build --bundles dmg"
   },
   "dependencies": {
     "@pierre/trees": "1.0.0-beta.6",
