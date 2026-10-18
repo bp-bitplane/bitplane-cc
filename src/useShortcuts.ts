@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { type Match, matchShortcut } from "./keymap";
 import {
+  closeActiveTab,
   cyclePlane,
   cycleTab,
   goToPlane,
@@ -8,7 +9,6 @@ import {
   openCreateDialog,
   openSession,
   refresh,
-  requestCloseSession,
   requestQuit,
   selectTool,
   togglePalette,
@@ -41,7 +41,7 @@ export function run({ action, digit = 1 }: Match): void {
       void openSession();
       break;
     case "closeTab":
-      void requestCloseSession();
+      closeActiveTab();
       break;
     case "nextTab":
       cycleTab(1);

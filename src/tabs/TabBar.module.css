@@ -71,3 +71,28 @@
   padding: 0 10px;
   color: var(--dim);
 }
+
+.preview .label {
+  font-style: italic;
+}
+
+.label:has(.icon) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon {
+  flex-shrink: 0;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suffix {
+  flex-shrink: 0;
+  color: var(--dim);
+}

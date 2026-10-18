@@ -8,10 +8,12 @@ import {
   session,
   sessionsById,
 } from "../test/fixtures";
-import { activeSession, sessionsOf, tabLabel } from "./selectors";
+import { activeFileTab, activeSession, fileTabsOf, sessionsOf, tabLabel } from "./selectors";
 import {
   applyCreate,
   applySession,
+  closeActiveTab,
+  closeFileTab,
   createPlane,
   cyclePlane,
   cycleTab,
@@ -19,9 +21,12 @@ import {
   goToTab,
   loadSnapshot,
   loadUiState,
+  openFileTab,
+  pinFileTab,
   requestCloseSession,
   requestQuit,
   selectPlane,
+  selectSession,
   useStore,
   zoom,
 } from "./store";
@@ -168,6 +173,113 @@ describe("tabs", () => {
     expect(state().activeTab.a).toBe(1);
     applySession({ id: 1, session: null });
     expect(state().activeTab.a).toBeUndefined();
+  });
+});
+
+describe("File tabs", () => {
+  beforeEach(() => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a"), plane("b")]),
+      sessions: sessionsById(session(1, "a"), session(2, "a")),
+      selectedPlaneId: "b",
+      activeTab: { a: 1 },
+    });
+  });
+
+  const keys = () =>
+    fileTabsOf(state(), "a").map((t) => `${t.mode}:${t.path}${t.pinned ? "!" : ""}`);
+
+  it("open as the active Tab of their plane and select it", () => {
+    openFileTab("a", "src/foo.ts", "worktree");
+    expect(state().selectedPlaneId).toBe("a");
+    expect(state().activeTab.a).toBe("worktree:src/foo.ts");
+    expect(activeSession(state(), "a")).toBeUndefined();
+    expect(activeFileTab(state(), "a")).toEqual({
+      planeId: "a",
+      path: "src/foo.ts",
+      mode: "worktree",
+      pinned: false,
+    });
+  });
+
+  it("focus an open one instead of opening it twice", () => {
+    openFileTab("a", "src/foo.ts", "index");
+    pinFileTab("a", "index:src/foo.ts");
+    openFileTab("a", "src/bar.ts", "file");
+    openFileTab("a", "src/foo.ts", "index");
+    expect(keys()).toEqual(["index:src/foo.ts!", "file:src/bar.ts"]);
+    expect(state().activeTab.a).toBe("index:src/foo.ts");
+  });
+
+  it("tell modes of one path apart", () => {
+    openFileTab("a", "src/foo.ts", "index");
+    pinFileTab("a", "index:src/foo.ts");
+    openFileTab("a", "src/foo.ts", "worktree");
+    expect(keys()).toEqual(["index:src/foo.ts!", "worktree:src/foo.ts"]);
+  });
+
+  it("replace the preview in place until pinned", () => {
+    openFileTab("a", "one.ts", "file");
+    openFileTab("a", "two.ts", "file");
+    expect(keys()).toEqual(["file:two.ts"]);
+    pinFileTab("a", "file:two.ts");
+    openFileTab("a", "three.ts", "file");
+    expect(keys()).toEqual(["file:two.ts!", "file:three.ts"]);
+  });
+
+  it("keep one preview per plane", () => {
+    openFileTab("a", "one.ts", "file");
+    openFileTab("b", "two.ts", "file");
+    expect(keys()).toEqual(["file:one.ts"]);
+    expect(fileTabsOf(state(), "b").map((t) => t.path)).toEqual(["two.ts"]);
+  });
+
+  it("cycle after the Session tabs", () => {
+    openFileTab("a", "one.ts", "file");
+    cycleTab(1);
+    expect(activeSession(state(), "a")?.id).toBe(1);
+    cycleTab(-1);
+    expect(state().activeTab.a).toBe("file:one.ts");
+    cycleTab(-1);
+    expect(state().activeTab.a).toBe(2);
+  });
+
+  it("leave ⌘1…9 to sessions", () => {
+    openFileTab("a", "one.ts", "file");
+    goToTab(3);
+    expect(state().activeTab.a).toBe("file:one.ts");
+    goToTab(2);
+    expect(state().activeTab.a).toBe(2);
+  });
+
+  it("close and hand focus to the neighbour", () => {
+    openFileTab("a", "one.ts", "file");
+    pinFileTab("a", "file:one.ts");
+    openFileTab("a", "two.ts", "file");
+    closeFileTab("a", "file:two.ts");
+    expect(state().activeTab.a).toBe("file:one.ts");
+    closeActiveTab();
+    expect(keys()).toEqual([]);
+    expect(state().activeTab.a).toBe(2);
+  });
+
+  it("take focus when the last session closes", () => {
+    openFileTab("a", "one.ts", "file");
+    selectSession("a", 1);
+    applySession({ id: 1, session: null });
+    applySession({ id: 2, session: null });
+    expect(state().activeTab.a).toBe("file:one.ts");
+  });
+
+  it("let ⌘W close the active session too", async () => {
+    const backend = mockBackend({ session_busy: () => ({ busy: false, processName: null }) });
+    openFileTab("a", "one.ts", "file");
+    selectSession("a", 2);
+    closeActiveTab();
+    await flush();
+    expect(backend.called("session_close")[0]?.args).toEqual({ id: 2 });
+    expect(keys()).toEqual(["file:one.ts"]);
   });
 });
 

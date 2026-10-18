@@ -43,6 +43,18 @@ describe("UI state", () => {
     );
   });
 
+  it("saves an active File tab and restores the plane's last session instead", () => {
+    seed({
+      sessions: sessionsById(session(1, "alpha")),
+      activeTab: { alpha: "file:src/foo.ts" },
+      fileTabs: { alpha: [{ planeId: "alpha", path: "src/foo.ts", mode: "file", pinned: true }] },
+    });
+    const saved = toSaved(useStore.getState());
+    expect(saved.activeTab).toEqual({ alpha: { file: "file:src/foo.ts" } });
+    const sessions = sessionsById(session(3, "alpha"), session(5, "alpha"), session(7, "beta"));
+    expect(fromSaved(JSON.stringify(saved), sessions).activeTab).toEqual({ alpha: 5 });
+  });
+
   it("drops tabs whose key now belongs to another plane", () => {
     const sessions = sessionsById(session(1, "beta", { key: "k1" }));
     expect(fromSaved(JSON.stringify({ activeTab: { alpha: "k1" } }), sessions).activeTab).toEqual(

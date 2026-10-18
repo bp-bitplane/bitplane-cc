@@ -22,9 +22,10 @@ import {
   type SourceControlEvent,
 } from "../ipc";
 import { detectPlatform, type Platform } from "../keymap";
+import { type FileTab, type FileTabKey, type FileTabMode, fileTabKey } from "../tabs/fileTabs";
 import { toolPanelView } from "../tool-bar/toolPanelView";
 import type { Tool } from "../tool-bar/tools";
-import { findPlane, sessionsOf } from "./selectors";
+import { activeSession, activeTabId, fileTabsOf, findPlane, sessionsOf, tabsOf } from "./selectors";
 import { fromSaved, SAVE_DELAY_MS, toSaved } from "./uiState";
 
 export const DEFAULT_FONT_SIZE = 12;
@@ -50,6 +51,9 @@ export type Dialog =
   | { kind: "quit"; info: QuitInfo }
   | { kind: "agentResume"; hooks: AgentHooks | null; error: string | null };
 
+/** A Session tab by session id, or a File tab by its key within the plane. */
+export type TabId = number | FileTabKey;
+
 export interface CreateFailure {
   envelope: Envelope | null;
   /** bp's log, shown for `create_aborted`. */
@@ -66,7 +70,9 @@ export interface State {
   duplicates: Record<string, string>;
 
   selectedPlaneId: string | null;
-  activeTab: Record<string, number>;
+  activeTab: Record<string, TabId>;
+  /** Plane id → its File tabs, in tab order; never saved. */
+  fileTabs: Record<string, FileTab[]>;
   /** Planes the user collapsed; a plane with sessions starts expanded. */
   collapsed: Record<string, boolean>;
   dialog: Dialog | null;
@@ -110,6 +116,7 @@ export const initialState = (): State => ({
   duplicates: {},
   selectedPlaneId: null,
   activeTab: {},
+  fileTabs: {},
   collapsed: {},
   dialog: null,
   fontSize: DEFAULT_FONT_SIZE,
@@ -220,22 +227,14 @@ export function applySession({ id, session }: SessionEvent): void {
   if (!session) {
     closedSessions.add(id);
     if (!previous) return;
-    const siblings = sessionsOf(state, previous.planeId);
-    const index = siblings.findIndex((s) => s.id === id);
-    const remaining = siblings.filter((s) => s.id !== id);
     const { [id]: _, ...sessions } = state.sessions;
-    const activeTab = { ...state.activeTab };
-    if (activeTab[previous.planeId] === id) {
-      const neighbour = remaining[Math.min(index, remaining.length - 1)];
-      if (neighbour) activeTab[previous.planeId] = neighbour.id;
-      else delete activeTab[previous.planeId];
-    }
-    set({ sessions, activeTab });
+    set({ sessions, activeTab: activeAfterClosing(state, previous.planeId, id) });
     return;
   }
-  const activeTab = state.activeTab[session.planeId]
-    ? state.activeTab
-    : { ...state.activeTab, [session.planeId]: id };
+  const activeTab =
+    state.activeTab[session.planeId] !== undefined
+      ? state.activeTab
+      : { ...state.activeTab, [session.planeId]: id };
   set({ sessions: { ...state.sessions, [id]: session }, activeTab });
 }
 
@@ -264,9 +263,13 @@ export function selectPlane(planeId: string): void {
 }
 
 export function selectSession(planeId: string, sessionId: number): void {
+  selectTab(planeId, sessionId);
+}
+
+export function selectTab(planeId: string, id: TabId): void {
   set((state) => ({
     selectedPlaneId: planeId,
-    activeTab: { ...state.activeTab, [planeId]: sessionId },
+    activeTab: { ...state.activeTab, [planeId]: id },
     notice: null,
   }));
 }
@@ -309,6 +312,16 @@ export async function requestCloseSession(sessionId = activeSessionId()): Promis
   await closeSession(sessionId);
 }
 
+/** ⌘W: the active Tab of either kind. */
+export function closeActiveTab(): void {
+  const state = get();
+  const planeId = state.selectedPlaneId;
+  const id = activeTabId(state, planeId);
+  if (!planeId || id === undefined) return;
+  if (typeof id === "number") void requestCloseSession(id);
+  else closeFileTab(planeId, id);
+}
+
 export async function closeSession(sessionId: number): Promise<void> {
   if (get().dialog?.kind === "confirmClose") set({ dialog: null });
   await commands.sessionClose(sessionId);
@@ -326,11 +339,54 @@ export function cycleTab(delta: number): void {
   const state = get();
   const planeId = state.selectedPlaneId;
   if (!planeId) return;
-  const tabs = sessionsOf(state, planeId);
+  const tabs = tabsOf(state, planeId);
   if (tabs.length === 0) return;
-  const index = tabs.findIndex((s) => s.id === activeSessionId());
+  const active = activeTabId(state, planeId);
+  const index = active === undefined ? -1 : tabs.indexOf(active);
   const next = tabs[(index + delta + tabs.length) % tabs.length];
-  if (next) selectSession(planeId, next.id);
+  if (next !== undefined) selectTab(planeId, next);
+}
+
+/**
+ * Focus the File tab if it's open; otherwise open it as the plane's preview,
+ * in place of the current one.
+ */
+export function openFileTab(planeId: string, path: string, mode: FileTabMode): void {
+  const key = fileTabKey({ path, mode });
+  set((state) => {
+    const tabs = fileTabsOf(state, planeId);
+    const focus = {
+      selectedPlaneId: planeId,
+      activeTab: { ...state.activeTab, [planeId]: key },
+      notice: null,
+    };
+    if (tabs.some((tab) => fileTabKey(tab) === key)) return focus;
+    const tab: FileTab = { planeId, path, mode, pinned: false };
+    const preview = tabs.findIndex((t) => !t.pinned);
+    const next = preview === -1 ? [...tabs, tab] : tabs.map((t, i) => (i === preview ? tab : t));
+    return { ...focus, fileTabs: { ...state.fileTabs, [planeId]: next } };
+  });
+}
+
+export function pinFileTab(planeId: string, key: FileTabKey): void {
+  set((state) => ({
+    fileTabs: {
+      ...state.fileTabs,
+      [planeId]: fileTabsOf(state, planeId).map((tab) =>
+        fileTabKey(tab) === key ? { ...tab, pinned: true } : tab,
+      ),
+    },
+  }));
+}
+
+export function closeFileTab(planeId: string, key: FileTabKey): void {
+  set((state) => ({
+    activeTab: activeAfterClosing(state, planeId, key),
+    fileTabs: {
+      ...state.fileTabs,
+      [planeId]: fileTabsOf(state, planeId).filter((tab) => fileTabKey(tab) !== key),
+    },
+  }));
 }
 
 export function goToTab(position: number): void {
@@ -615,11 +671,20 @@ function clampWidth(width: number, min: number, max: number): number {
 
 function activeSessionId(): number | undefined {
   const state = get();
-  const planeId = state.selectedPlaneId;
-  if (!planeId) return undefined;
-  const active = state.activeTab[planeId];
-  const tabs = sessionsOf(state, planeId);
-  return tabs.find((s) => s.id === active)?.id ?? tabs[0]?.id;
+  return activeSession(state, state.selectedPlaneId)?.id;
+}
+
+/** `activeTab` once `id` closes: an active Tab hands focus to its neighbour. */
+function activeAfterClosing(state: State, planeId: string, id: TabId): Record<string, TabId> {
+  const activeTab = { ...state.activeTab };
+  if (activeTabId(state, planeId) !== id) return activeTab;
+  const tabs = tabsOf(state, planeId);
+  const index = tabs.indexOf(id);
+  const remaining = tabs.filter((tab) => tab !== id);
+  const neighbour = remaining[Math.min(index, remaining.length - 1)];
+  if (neighbour !== undefined) activeTab[planeId] = neighbour;
+  else delete activeTab[planeId];
+  return activeTab;
 }
 
 async function onCreateFinished(create: CreateInfo): Promise<void> {
