@@ -414,7 +414,7 @@ mod tests {
         let scope = Scope::with_file_tabs(root.path(), &[], &tabs);
         let canonical = root.path().canonicalize().unwrap();
         assert_eq!(scope.worktrees, [canonical.join("web")]);
-        assert_eq!(scope.folders, [canonical.clone()]);
+        assert_eq!(scope.folders, std::slice::from_ref(&canonical));
         assert_eq!(scope.git_dirs, [canonical.join("web/.git")]);
     }
 }
