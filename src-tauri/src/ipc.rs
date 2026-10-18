@@ -16,6 +16,7 @@ use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_
 use crate::app::{App, PlanesModel, Snapshot};
 use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
+use crate::diff::{self, DiffMode, FileContents, FileDiff, FileText};
 use crate::editor;
 use crate::files::{self, FileEntry};
 use crate::files_watch::FilesEvent;
@@ -74,6 +75,9 @@ pub fn builder() -> Builder<Wry> {
             plane_list_dir,
             plane_files_watch,
             plane_open_file,
+            plane_file_diff,
+            plane_file_contents,
+            plane_read_file,
             project_list,
             quit_check,
             quit,
@@ -259,6 +263,43 @@ async fn plane_open_file(
     path: String,
 ) -> Result<(), String> {
     editor::open_file_in_vscode(&app.plane_dir(&plane_id)?, &path, &app.tool_env()).await
+}
+
+/// What a File tab of `path` in `mode` shows; `path` is relative to the plane root.
+#[tauri::command]
+#[specta::specta]
+async fn plane_file_diff(
+    app: State<'_, AppState>,
+    plane_id: String,
+    path: String,
+    mode: DiffMode,
+) -> Result<FileDiff, String> {
+    let (root, _) = app.source_control_target(&plane_id)?;
+    diff::file_diff(&root, &path, mode, &app.tool_env()).await
+}
+
+/// Both sides of `path`'s diff in `mode`, for expanding unchanged context.
+#[tauri::command]
+#[specta::specta]
+async fn plane_file_contents(
+    app: State<'_, AppState>,
+    plane_id: String,
+    path: String,
+    mode: DiffMode,
+) -> Result<FileContents, String> {
+    let (root, _) = app.source_control_target(&plane_id)?;
+    diff::file_contents(&root, &path, mode, &app.tool_env()).await
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn plane_read_file(
+    app: State<'_, AppState>,
+    plane_id: String,
+    path: String,
+) -> Result<FileText, String> {
+    let (root, _) = app.source_control_target(&plane_id)?;
+    diff::read_file(&root, &path)
 }
 
 #[tauri::command]

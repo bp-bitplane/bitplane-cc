@@ -38,6 +38,11 @@ export const commands = {
 	 */
 	planeFilesWatch: (planeId: string | null, dirs: string[]) => __TAURI_INVOKE<void>("plane_files_watch", { planeId, dirs }),
 	planeOpenFile: (planeId: string, path: string) => __TAURI_INVOKE<null>("plane_open_file", { planeId, path }),
+	/**  What a File tab of `path` in `mode` shows; `path` is relative to the plane root. */
+	planeFileDiff: (planeId: string, path: string, mode: DiffMode) => __TAURI_INVOKE<FileDiff>("plane_file_diff", { planeId, path, mode }),
+	/**  Both sides of `path`'s diff in `mode`, for expanding unchanged context. */
+	planeFileContents: (planeId: string, path: string, mode: DiffMode) => __TAURI_INVOKE<FileContents>("plane_file_contents", { planeId, path, mode }),
+	planeReadFile: (planeId: string, path: string) => __TAURI_INVOKE<FileText>("plane_read_file", { planeId, path }),
 	projectList: () => __TAURI_INVOKE<Project[]>("project_list"),
 	quitCheck: () => __TAURI_INVOKE<QuitInfo>("quit_check"),
 	quit: () => __TAURI_INVOKE<void>("quit"),
@@ -134,6 +139,14 @@ export type CreateStatus = { kind: "running" } | { kind: "succeeded" } |
 /**  A partial plane is left behind; only `bp destroy` cleans it up. */
 { kind: "partial"; envelope: Envelope | null };
 
+export type DiffMode = 
+/**  HEAD ↔ index. */
+"index" | 
+/**  Index ↔ worktree. */
+"worktree" | 
+/**  HEAD ↔ worktree. */
+"file";
+
 /**  bp's failure envelope, the last line of stderr. */
 export type Envelope = {
 	error: string,
@@ -143,6 +156,17 @@ export type Envelope = {
 	remedy?: string | null,
 };
 
+export type FileContents = {
+	old: string,
+	new: string,
+};
+
+export type FileDiff = { kind: "diff"; patch: string } | 
+/**  Nothing to compare: ignored, outside any repo, or unchanged in `file` mode. */
+{ kind: "plain" } | { kind: "binary"; oldSize: number; newSize: number } | { kind: "tooLarge"; size: number } | 
+/**  The change this `index` or `worktree` tab showed is gone. */
+{ kind: "none" };
+
 export type FileEntry = {
 	name: string,
 	kind: FileKind,
@@ -151,6 +175,8 @@ export type FileEntry = {
 };
 
 export type FileKind = "file" | "directory";
+
+export type FileText = { kind: "text"; contents: string } | { kind: "binary"; size: number } | { kind: "tooLarge"; size: number };
 
 export type FilesChanged = FilesEvent;
 

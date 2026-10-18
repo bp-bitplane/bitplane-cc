@@ -6,10 +6,9 @@ use std::process::Stdio;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 
-use crate::bp;
 use crate::env::EnvMap;
+use crate::git_cli::Git;
 
 pub const GIT_DIR: &str = ".git";
 
@@ -119,7 +118,7 @@ fn first_link(root: &Path, relative: &str) -> Option<PathBuf> {
 }
 
 /// The nearest folder from `dir` up to `root` holding a `.git`.
-fn containing_repo(root: &Path, dir: &Path) -> Option<PathBuf> {
+pub fn containing_repo(root: &Path, dir: &Path) -> Option<PathBuf> {
     let root = root.canonicalize().ok()?;
     dir.ancestors()
         .take_while(|ancestor| ancestor.starts_with(&root))
@@ -130,7 +129,7 @@ fn containing_repo(root: &Path, dir: &Path) -> Option<PathBuf> {
 /// Which of `names` in `dir` `repo`'s ignore rules match. Any failure,
 /// including git missing from `PATH`, leaves everything unignored.
 async fn check_ignore(repo: &Path, dir: &Path, names: &[&str], env: &EnvMap) -> Vec<String> {
-    let Some(git) = bp::find_on_path("git", env.get("PATH").map(String::as_str)) else {
+    let Some(git) = Git::find(env) else {
         return Vec::new();
     };
     let prefix = dir.strip_prefix(repo).unwrap_or(Path::new(""));
@@ -142,21 +141,19 @@ async fn check_ignore(repo: &Path, dir: &Path, names: &[&str], env: &EnvMap) -> 
     if input.is_empty() {
         return Vec::new();
     }
-    let Ok(mut child) = Command::new(git)
-        .args([
-            "-c",
-            "core.fsmonitor=false",
-            "check-ignore",
-            "-z",
-            "--stdin",
-        ])
-        .current_dir(repo)
-        .env_clear()
-        .envs(bp::git_env(env))
+    let Ok(mut child) = git
+        .command(
+            repo,
+            &[
+                "-c",
+                "core.fsmonitor=false",
+                "check-ignore",
+                "-z",
+                "--stdin",
+            ],
+        )
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .kill_on_drop(true)
         .spawn()
     else {
         return Vec::new();
