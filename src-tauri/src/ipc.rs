@@ -261,11 +261,13 @@ async fn plane_open_file(
     app: State<'_, AppState>,
     plane_id: String,
     path: String,
+    line: Option<u32>,
 ) -> Result<(), String> {
-    editor::open_file_in_vscode(&app.plane_dir(&plane_id)?, &path, &app.tool_env()).await
+    editor::open_file_in_vscode(&app.plane_dir(&plane_id)?, &path, line, &app.tool_env()).await
 }
 
-/// What a File tab of `path` in `mode` shows; `path` is relative to the plane root.
+/// What a File tab of `path` in `mode` shows; `path` is relative to the plane
+/// root. `force` diffs a file even past the size limit ("Show anyway").
 #[tauri::command]
 #[specta::specta]
 async fn plane_file_diff(
@@ -273,9 +275,10 @@ async fn plane_file_diff(
     plane_id: String,
     path: String,
     mode: DiffMode,
+    force: bool,
 ) -> Result<FileDiff, String> {
     let (root, _) = app.source_control_target(&plane_id)?;
-    diff::file_diff(&root, &path, mode, &app.tool_env()).await
+    diff::file_diff(&root, &path, mode, force, &app.tool_env()).await
 }
 
 /// Both sides of `path`'s diff in `mode`, for expanding unchanged context.

@@ -54,6 +54,8 @@ export type Dialog =
 /** A Session tab by session id, or a File tab by its key within the plane. */
 export type TabId = number | FileTabKey;
 
+export type DiffStyle = "unified" | "split";
+
 export interface CreateFailure {
   envelope: Envelope | null;
   /** bp's log, shown for `create_aborted`. */
@@ -85,6 +87,8 @@ export interface State {
   activeTool: Tool;
   toolPanelWidth: number;
   sidebarWidth: number;
+  /** How File tabs lay out a diff; saved. */
+  diffStyle: DiffStyle;
   sourceControl: SourceControl | null;
   /** Repo path → collapsed in Source control; never saved. */
   repoCollapsed: Record<string, boolean>;
@@ -126,6 +130,7 @@ export const initialState = (): State => ({
   activeTool: "sourceControl",
   toolPanelWidth: DEFAULT_TOOL_PANEL_WIDTH,
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+  diffStyle: "unified",
   sourceControl: null,
   repoCollapsed: {},
   filesExpanded: {},
@@ -522,6 +527,10 @@ export function setToolPanelWidth(width: number): void {
   set({ toolPanelWidth: clampToolPanelWidth(width) });
 }
 
+export function setDiffStyle(diffStyle: DiffStyle): void {
+  set({ diffStyle });
+}
+
 export function setSidebarWidth(width: number): void {
   set({ sidebarWidth: clampSidebarWidth(width) });
 }
@@ -601,9 +610,9 @@ export function watchFiles(planeId: string, dirs: string[]): () => void {
   return () => void commands.planeFilesWatch(null, []).catch(() => undefined);
 }
 
-export async function openFile(planeId: string, path: string): Promise<void> {
+export async function openFile(planeId: string, path: string, line?: number): Promise<void> {
   try {
-    await commands.planeOpenFile(planeId, path);
+    await commands.planeOpenFile(planeId, path, line ?? null);
   } catch (error) {
     set({ notice: String(error) });
   }

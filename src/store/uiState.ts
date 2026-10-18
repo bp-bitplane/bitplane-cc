@@ -7,7 +7,7 @@ import type { SessionInfo } from "../ipc";
 import type { FileTabKey } from "../tabs/fileTabs";
 import { TOOLS, type Tool } from "../tool-bar/tools";
 import { sessionsOf } from "./selectors";
-import type { State } from "./store";
+import type { DiffStyle, State } from "./store";
 
 export const SAVE_DELAY_MS = 300;
 
@@ -19,6 +19,7 @@ export interface SavedUiState {
   fontSize: number;
   toolPanel: { open: boolean; tool: Tool; width: number };
   sidebar: { width: number };
+  fileTab: { diffStyle: DiffStyle };
 }
 
 export function toSaved(state: State): SavedUiState {
@@ -42,6 +43,7 @@ export function toSaved(state: State): SavedUiState {
       width: state.toolPanelWidth,
     },
     sidebar: { width: state.sidebarWidth },
+    fileTab: { diffStyle: state.diffStyle },
   };
 }
 
@@ -60,6 +62,7 @@ export function fromSaved(
     | "activeTool"
     | "toolPanelWidth"
     | "sidebarWidth"
+    | "diffStyle"
   >
 > {
   const saved = parse(json);
@@ -91,6 +94,10 @@ export function fromSaved(
   if (TOOLS.some((tool) => tool === toolPanel.tool)) result.activeTool = toolPanel.tool as Tool;
   if (typeof toolPanel.width === "number" && Number.isFinite(toolPanel.width)) {
     result.toolPanelWidth = toolPanel.width;
+  }
+  const fileTab = object(saved.fileTab);
+  if (fileTab.diffStyle === "unified" || fileTab.diffStyle === "split") {
+    result.diffStyle = fileTab.diffStyle;
   }
   const sidebar = object(saved.sidebar);
   if (typeof sidebar.width === "number" && Number.isFinite(sidebar.width)) {

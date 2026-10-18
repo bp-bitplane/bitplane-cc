@@ -16,10 +16,18 @@ pub async fn open_in_vscode(dir: &Path, env: &EnvMap) -> Result<(), String> {
     run_code(&[dir.as_os_str()], dir, env).await
 }
 
-/// Run `code -g <file>` for `relative` inside the plane `root`.
-pub async fn open_file_in_vscode(root: &Path, relative: &str, env: &EnvMap) -> Result<(), String> {
-    let file = files::resolve(root, relative)?;
-    run_code(&["-g".as_ref(), file.as_os_str()], root, env).await
+/// Run `code -g <file>[:<line>]` for `relative` inside the plane `root`.
+pub async fn open_file_in_vscode(
+    root: &Path,
+    relative: &str,
+    line: Option<u32>,
+    env: &EnvMap,
+) -> Result<(), String> {
+    let mut target = files::resolve(root, relative)?.into_os_string();
+    if let Some(line) = line {
+        target.push(format!(":{line}"));
+    }
+    run_code(&["-g".as_ref(), target.as_os_str()], root, env).await
 }
 
 async fn run_code(args: &[&std::ffi::OsStr], dir: &Path, env: &EnvMap) -> Result<(), String> {
@@ -85,12 +93,27 @@ mod tests {
             bin.path(),
             &format!("echo \"$1 $2\" > {}", record.display()),
         );
-        open_file_in_vscode(root.path(), "src/a.rs", &env_with_path(bin.path()))
+        open_file_in_vscode(root.path(), "src/a.rs", None, &env_with_path(bin.path()))
             .await
             .unwrap();
         let args = std::fs::read_to_string(record).unwrap();
         let file = root.path().canonicalize().unwrap().join("src/a.rs");
         assert_eq!(args.trim(), format!("-g {}", file.display()));
+    }
+
+    #[tokio::test]
+    async fn opens_a_file_at_a_line() {
+        let bin = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("a.rs"), "").unwrap();
+        let record = bin.path().join("args");
+        fake_code(bin.path(), &format!("echo \"$2\" > {}", record.display()));
+        open_file_in_vscode(root.path(), "a.rs", Some(12), &env_with_path(bin.path()))
+            .await
+            .unwrap();
+        let args = std::fs::read_to_string(record).unwrap();
+        let file = root.path().canonicalize().unwrap().join("a.rs");
+        assert_eq!(args.trim(), format!("{}:12", file.display()));
     }
 
     #[tokio::test]
@@ -102,7 +125,7 @@ mod tests {
         std::os::unix::fs::symlink(outside.path(), root.path().join("notes")).unwrap();
         let record = bin.path().join("args");
         fake_code(bin.path(), &format!("echo \"$2\" > {}", record.display()));
-        open_file_in_vscode(root.path(), "notes/a.md", &env_with_path(bin.path()))
+        open_file_in_vscode(root.path(), "notes/a.md", None, &env_with_path(bin.path()))
             .await
             .unwrap();
         let args = std::fs::read_to_string(record).unwrap();
@@ -114,7 +137,7 @@ mod tests {
     async fn refuses_a_file_outside_the_plane() {
         let bin = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();
-        let error = open_file_in_vscode(root.path(), "../etc", &env_with_path(bin.path()))
+        let error = open_file_in_vscode(root.path(), "../etc", None, &env_with_path(bin.path()))
             .await
             .unwrap_err();
         assert!(error.contains("inside the plane"), "{error}");

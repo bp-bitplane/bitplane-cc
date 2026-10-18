@@ -5,6 +5,7 @@
 import type { ContextMenuItem, FileTreeBatchOperation } from "@pierre/trees";
 import { FileTree as PierreTree, useFileTree } from "@pierre/trees/react";
 import { type KeyboardEvent, type MouseEvent, useEffect, useRef } from "react";
+import theme from "../../ui/pierreTheme.module.css";
 import styles from "./FileTree.module.css";
 import type { FileStatusEntry } from "./filesTree";
 
@@ -95,7 +96,7 @@ export function FileTree({
   return (
     <PierreTree
       model={model}
-      className={styles.tree}
+      className={`${styles.tree} ${theme.trees}`}
       onDoubleClick={onDoubleClick}
       onKeyDown={onKeyDown}
       renderContextMenu={(item: ContextMenuItem, context) => {

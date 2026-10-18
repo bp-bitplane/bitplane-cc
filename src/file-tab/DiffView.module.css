@@ -1,0 +1,17 @@
+.view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.raw {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 16px;
+  overflow: auto;
+  font: 12px var(--mono);
+  color: var(--text);
+  -webkit-user-select: text;
+  user-select: text;
+}

@@ -66,6 +66,7 @@ pub async fn file_diff(
     root: &Path,
     relative: &str,
     mode: DiffMode,
+    force: bool,
     env: &EnvMap,
 ) -> Result<FileDiff, String> {
     let target = locate(root, relative)?;
@@ -78,7 +79,7 @@ pub async fn file_diff(
         return plain(&target, relative);
     }
     if !is_tracked(&git, dir, path).await? {
-        return untracked_diff(&git, &target, repo, mode, relative).await;
+        return untracked_diff(&git, &target, repo, mode, force, relative).await;
     }
     let base = mode.diff_args();
     let from = find_rename(&git, dir, base, path).await?;
@@ -89,7 +90,7 @@ pub async fn file_diff(
         DiffMode::Worktree | DiffMode::File => disk_size(&target.path).unwrap_or(0),
     };
     let size = old_size.max(new_size);
-    if size > MAX_FILE_BYTES {
+    if size > MAX_FILE_BYTES && !force {
         return Ok(FileDiff::TooLarge { size });
     }
     let mut pathspec = vec!["--", path];
@@ -247,13 +248,14 @@ async fn untracked_diff(
     target: &Target,
     repo: &RepoPath,
     mode: DiffMode,
+    force: bool,
     relative: &str,
 ) -> Result<FileDiff, String> {
     if mode == DiffMode::Index {
         return Ok(FileDiff::None);
     }
     let size = disk_size(&target.path).ok_or_else(|| format!("{relative} no longer exists"))?;
-    if size > MAX_FILE_BYTES {
+    if size > MAX_FILE_BYTES && !force {
         return Ok(FileDiff::TooLarge { size });
     }
     let (dir, path) = (repo.dir.as_path(), repo.path.as_str());
@@ -410,7 +412,9 @@ mod tests {
         }
 
         async fn diff(&self, path: &str, mode: DiffMode) -> FileDiff {
-            file_diff(self.root(), path, mode, &self.env).await.unwrap()
+            file_diff(self.root(), path, mode, false, &self.env)
+                .await
+                .unwrap()
         }
 
         async fn contents(&self, path: &str, mode: DiffMode) -> (String, String) {
@@ -510,9 +514,15 @@ mod tests {
             FileDiff::Plain
         );
         assert!(
-            file_diff(plane.root(), "missing.toml", DiffMode::File, &plane.env)
-                .await
-                .is_err()
+            file_diff(
+                plane.root(),
+                "missing.toml",
+                DiffMode::File,
+                false,
+                &plane.env
+            )
+            .await
+            .is_err()
         );
     }
 
@@ -594,6 +604,16 @@ mod tests {
             read_file(plane.root(), "web/big.txt").unwrap(),
             FileText::TooLarge { size }
         );
+        let forced = file_diff(
+            plane.root(),
+            "web/a.txt",
+            DiffMode::Worktree,
+            true,
+            &plane.env,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(forced, FileDiff::Diff { .. }), "{forced:?}");
     }
 
     #[tokio::test]
@@ -601,7 +621,7 @@ mod tests {
         let plane = Plane::with_repo();
         for relative in ["..", "../x", "/etc/passwd", "web/../../x", "", "web/"] {
             assert!(
-                file_diff(plane.root(), relative, DiffMode::File, &plane.env)
+                file_diff(plane.root(), relative, DiffMode::File, false, &plane.env)
                     .await
                     .is_err(),
                 "{relative}"
@@ -614,7 +634,7 @@ mod tests {
     async fn a_missing_worktree_is_an_error() {
         let plane = Plane::new();
         assert!(
-            file_diff(plane.root(), "web/a.txt", DiffMode::File, &plane.env)
+            file_diff(plane.root(), "web/a.txt", DiffMode::File, false, &plane.env)
                 .await
                 .is_err()
         );

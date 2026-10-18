@@ -37,9 +37,12 @@ export const commands = {
 	 *  stops. Sync, so calls apply in the order the frontend made them.
 	 */
 	planeFilesWatch: (planeId: string | null, dirs: string[]) => __TAURI_INVOKE<void>("plane_files_watch", { planeId, dirs }),
-	planeOpenFile: (planeId: string, path: string) => __TAURI_INVOKE<null>("plane_open_file", { planeId, path }),
-	/**  What a File tab of `path` in `mode` shows; `path` is relative to the plane root. */
-	planeFileDiff: (planeId: string, path: string, mode: DiffMode) => __TAURI_INVOKE<FileDiff>("plane_file_diff", { planeId, path, mode }),
+	planeOpenFile: (planeId: string, path: string, line: number | null) => __TAURI_INVOKE<null>("plane_open_file", { planeId, path, line }),
+	/**
+	 *  What a File tab of `path` in `mode` shows; `path` is relative to the plane
+	 *  root. `force` diffs a file even past the size limit ("Show anyway").
+	 */
+	planeFileDiff: (planeId: string, path: string, mode: DiffMode, force: boolean) => __TAURI_INVOKE<FileDiff>("plane_file_diff", { planeId, path, mode, force }),
 	/**  Both sides of `path`'s diff in `mode`, for expanding unchanged context. */
 	planeFileContents: (planeId: string, path: string, mode: DiffMode) => __TAURI_INVOKE<FileContents>("plane_file_contents", { planeId, path, mode }),
 	planeReadFile: (planeId: string, path: string) => __TAURI_INVOKE<FileText>("plane_read_file", { planeId, path }),

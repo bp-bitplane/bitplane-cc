@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { CreateProgress } from "../create-plane/CreateProgress";
+import { FileTabView } from "../file-tab/FileTabView";
 import type { AppStatus } from "../ipc";
 import { labelFor } from "../keymap";
 import { activeFileTab, activeSession, findPlane, tabsOf } from "../store/selectors";
@@ -15,10 +16,10 @@ import {
   type State,
   useStore,
 } from "../store/store";
+import { fileTabKey } from "../tabs/fileTabs";
 import { TabBar } from "../tabs/TabBar";
 import { TerminalStack } from "../terminal/TerminalStack";
 import { Centered } from "../ui/Centered";
-import { FileTabContent } from "./FileTabContent";
 import styles from "./MainArea.module.css";
 
 /**
@@ -46,7 +47,7 @@ export function MainArea() {
         <TerminalStack visibleId={visibleId} />
         {fileTab && (
           <div className={styles.screen}>
-            <FileTabContent tab={fileTab} />
+            <FileTabView key={`${fileTab.planeId}/${fileTabKey(fileTab)}`} tab={fileTab} />
           </div>
         )}
         {view.screen !== null && (

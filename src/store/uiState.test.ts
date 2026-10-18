@@ -17,6 +17,7 @@ describe("UI state", () => {
       fontSize: 12,
       toolPanel: { open: false, tool: "sourceControl", width: 320 },
       sidebar: { width: 270 },
+      fileTab: { diffStyle: "unified" },
     });
   });
 
@@ -29,6 +30,15 @@ describe("UI state", () => {
       "sourceControl",
       640,
     ]);
+  });
+
+  it("restores the diff layout and ignores an unknown one", () => {
+    seed();
+    loadUiState(JSON.stringify({ fileTab: { diffStyle: "split" } }));
+    expect(useStore.getState().diffStyle).toBe("split");
+    expect(fromSaved(JSON.stringify({ fileTab: { diffStyle: "wide" } }), {})).not.toHaveProperty(
+      "diffStyle",
+    );
   });
 
   it("restores the sidebar and clamps its width", () => {

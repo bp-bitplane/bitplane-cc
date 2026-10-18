@@ -163,7 +163,7 @@ describe("Files", () => {
     });
     await settle();
     expect(backend.called("plane_open_file")).toEqual([
-      { cmd: "plane_open_file", args: { planeId: "alpha", path: "projects/web/a.ts" } },
+      { cmd: "plane_open_file", args: { planeId: "alpha", path: "projects/web/a.ts", line: null } },
     ]);
   });
 
