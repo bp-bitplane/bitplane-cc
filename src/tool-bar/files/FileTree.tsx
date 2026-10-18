@@ -14,6 +14,8 @@ export interface MenuAction {
   run: () => void;
 }
 
+export type MenuEntry = MenuAction | "separator";
+
 export interface FileTreeProps {
   /** Folders end with "/". */
   paths: readonly string[];
@@ -26,7 +28,9 @@ export interface FileTreeProps {
   onExpandedChange: (expanded: string[]) => void;
   /** Double-click or Enter on a file. */
   onOpen: (path: string) => void;
-  menu: (path: string) => MenuAction[];
+  /** ⌘↩ or Ctrl+Enter on a file. */
+  onOpenExternal: (path: string) => void;
+  menu: (path: string) => MenuEntry[];
 }
 
 export function FileTree({
@@ -37,6 +41,7 @@ export function FileTree({
   expanded,
   onExpandedChange,
   onOpen,
+  onOpenExternal,
   menu,
 }: FileTreeProps) {
   const decorationsRef = useRef(decorations);
@@ -85,12 +90,14 @@ export function FileTree({
     [model],
   );
 
-  const openFrom = (path: string | null) => {
-    if (path && !path.endsWith("/") && model.getItem(path)?.isDirectory() === false) onOpen(path);
+  const openFrom = (path: string | null, open = onOpen) => {
+    if (path && !path.endsWith("/") && model.getItem(path)?.isDirectory() === false) open(path);
   };
   const onDoubleClick = (event: MouseEvent) => openFrom(rowPath(event.nativeEvent));
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Enter") openFrom(model.getFocusedPath());
+    if (event.key !== "Enter") return;
+    const external = event.metaKey || event.ctrlKey;
+    openFrom(model.getFocusedPath(), external ? onOpenExternal : onOpen);
   };
 
   return (
@@ -104,20 +111,25 @@ export function FileTree({
         if (actions.length === 0) return null;
         return (
           <div className={styles.menu} role="menu" data-file-tree-context-menu-root="true">
-            {actions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                role="menuitem"
-                className={styles.menuItem}
-                onClick={() => {
-                  action.run();
-                  context.close();
-                }}
-              >
-                {action.label}
-              </button>
-            ))}
+            {actions.map((action, index) =>
+              action === "separator" ? (
+                // biome-ignore lint/suspicious/noArrayIndexKey: separators have nothing else to key on
+                <hr key={index} className={styles.menuSeparator} />
+              ) : (
+                <button
+                  key={action.label}
+                  type="button"
+                  role="menuitem"
+                  className={styles.menuItem}
+                  onClick={() => {
+                    action.run();
+                    context.close();
+                  }}
+                >
+                  {action.label}
+                </button>
+              ),
+            )}
           </div>
         );
       }}

@@ -111,8 +111,20 @@
   white-space: nowrap;
 }
 
+button.file {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
 .file:hover {
   background: var(--hover);
+}
+
+.current,
+.current:hover {
+  background: var(--accent-soft);
 }
 
 .fileName {

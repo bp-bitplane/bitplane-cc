@@ -27,3 +27,9 @@
   background: var(--accent-soft);
   outline: none;
 }
+
+.menuSeparator {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--line-strong);
+}
