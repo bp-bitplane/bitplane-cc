@@ -1,4 +1,5 @@
-//! Watching the shown plane's repos so Source control stays current.
+//! Watching the shown plane's repos so Source control and open File tabs
+//! stay current.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -8,6 +9,7 @@ use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::files;
 use crate::git::Repo;
 use crate::planes::DEBOUNCE;
 
@@ -31,11 +33,30 @@ pub struct SourceControlEvent {
     pub repos: Vec<Repo>,
 }
 
-/// What is watched: each worktree recursively, each git dir on its own.
+/// `file_tabs_changed`: the open File tabs of a watched plane may be stale.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTabsEvent {
+    pub plane_id: String,
+}
+
+/// What the frontend has on screen that git changes can make stale.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GitTarget {
+    pub plane_id: String,
+    pub source_control: bool,
+    /// The plane's open File tabs, relative to its root.
+    pub file_tabs: Vec<String>,
+}
+
+/// What is watched: each worktree recursively, each git dir and each folder
+/// of an outside-repo File tab on its own.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Scope {
     pub worktrees: Vec<PathBuf>,
     pub git_dirs: Vec<PathBuf>,
+    pub folders: Vec<PathBuf>,
 }
 
 impl Scope {
@@ -43,6 +64,9 @@ impl Scope {
     pub fn of(dirs: &[PathBuf]) -> Scope {
         let mut scope = Scope::default();
         for worktree in dirs.iter().filter_map(|dir| dir.canonicalize().ok()) {
+            if scope.worktrees.contains(&worktree) {
+                continue;
+            }
             for git_dir in git_dirs(&worktree) {
                 if !scope.git_dirs.contains(&git_dir) {
                     scope.git_dirs.push(git_dir);
@@ -53,6 +77,28 @@ impl Scope {
         scope
     }
 
+    /// `repos`, plus whatever holds each File tab: its repo, or for a file
+    /// outside any repo, its folder.
+    pub fn with_file_tabs(root: &Path, repos: &[PathBuf], file_tabs: &[String]) -> Scope {
+        let mut dirs = repos.to_vec();
+        let mut folders = Vec::new();
+        for relative in file_tabs.iter().filter(|path| !files::in_git_dir(path)) {
+            let parent = Path::new(relative).parent().unwrap_or(Path::new(""));
+            let Ok(dir) = files::resolve(root, &parent.to_string_lossy()) else {
+                continue;
+            };
+            match files::containing_repo(root, &dir) {
+                Some(repo) => dirs.push(repo),
+                None if !folders.contains(&dir) => folders.push(dir),
+                None => {}
+            }
+        }
+        Scope {
+            folders,
+            ..Scope::of(&dirs)
+        }
+    }
+
     /// Whether a change at `path` can change a repo's status.
     pub fn is_relevant(&self, path: &Path) -> bool {
         let in_git_dir = path
@@ -60,6 +106,12 @@ impl Scope {
             .is_some_and(|parent| self.git_dirs.iter().any(|dir| dir == parent));
         if in_git_dir {
             return !path.extension().is_some_and(|ext| ext == "lock");
+        }
+        if path
+            .parent()
+            .is_some_and(|parent| self.folders.iter().any(|dir| dir == parent))
+        {
+            return true;
         }
         self.worktrees.iter().any(|worktree| {
             path.strip_prefix(worktree).is_ok_and(|relative| {
@@ -102,14 +154,19 @@ impl GitWatch {
             return;
         }
         let watcher = self.debouncer.watcher();
-        for path in current.worktrees.iter().chain(&current.git_dirs) {
+        for path in current
+            .worktrees
+            .iter()
+            .chain(&current.git_dirs)
+            .chain(&current.folders)
+        {
             let _ = watcher.unwatch(path);
         }
         for worktree in &scope.worktrees {
             let _ = watcher.watch(worktree, RecursiveMode::Recursive);
         }
-        for git_dir in &scope.git_dirs {
-            let _ = watcher.watch(git_dir, RecursiveMode::NonRecursive);
+        for dir in scope.git_dirs.iter().chain(&scope.folders) {
+            let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
         }
         *current = scope;
     }
@@ -209,7 +266,10 @@ mod tests {
         let scope = Scope {
             worktrees: vec![PathBuf::from("/p/web")],
             git_dirs: vec![PathBuf::from("/p/web/.git")],
+            folders: vec![PathBuf::from("/p")],
         };
+        assert!(scope.is_relevant(Path::new("/p/plane.toml")));
+        assert!(!scope.is_relevant(Path::new("/p/.bitplane/state")));
         assert!(scope.is_relevant(Path::new("/p/web/src/a.rs")));
         assert!(scope.is_relevant(Path::new("/p/web/.git/index")));
         assert!(scope.is_relevant(Path::new("/p/web/.git/HEAD")));
@@ -224,7 +284,7 @@ mod tests {
     fn ignored_names_only_count_inside_the_worktree() {
         let scope = Scope {
             worktrees: vec![PathBuf::from("/target/web")],
-            git_dirs: Vec::new(),
+            ..Scope::default()
         };
         assert!(scope.is_relevant(Path::new("/target/web/a.rs")));
     }
@@ -288,5 +348,73 @@ mod tests {
         write(watched.repo.join("node_modules/x/index.js"), "x\n");
         write(watched.repo.join("target/debug/app"), "x\n");
         assert!(!watched.changed());
+    }
+
+    /// A plane with a `web` repo and a `plane.toml`, watched only for the
+    /// given File tabs, as with Source control closed.
+    fn watch_file_tabs(file_tabs: &[&str]) -> (tempfile::TempDir, mpsc::Receiver<()>, GitWatch) {
+        let root = tempfile::tempdir().unwrap();
+        repo(&root.path().join("web"));
+        write(root.path().join("plane.toml"), "version = 1\n");
+        write(root.path().join("notes/todo.md"), "x\n");
+        let (sender, changes) = mpsc::channel();
+        let sender = Mutex::new(sender);
+        let mut watch = GitWatch::new(Arc::new(move || {
+            let _ = sender.lock().unwrap().send(());
+        }))
+        .unwrap();
+        let tabs: Vec<String> = file_tabs.iter().map(|tab| tab.to_string()).collect();
+        watch.set_scope(Scope::with_file_tabs(root.path(), &[], &tabs));
+        std::thread::sleep(SETTLE);
+        while changes.try_recv().is_ok() {}
+        (root, changes, watch)
+    }
+
+    fn changed(changes: &mpsc::Receiver<()>) -> bool {
+        let changed = changes.recv_timeout(WAIT).is_ok();
+        std::thread::sleep(SETTLE);
+        while changes.try_recv().is_ok() {}
+        changed
+    }
+
+    #[test]
+    fn a_file_tab_follows_an_edit_a_stage_and_a_commit_without_source_control() {
+        let (root, changes, _watch) = watch_file_tabs(&["web/a.txt"]);
+        let web = root.path().join("web");
+        write(web.join("a.txt"), "edited\n");
+        assert!(changed(&changes), "edit");
+        git(&web, &["add", "a.txt"]);
+        assert!(changed(&changes), "stage");
+        git(&web, &["commit", "-q", "-m", "second"]);
+        assert!(changed(&changes), "commit");
+    }
+
+    #[test]
+    fn an_outside_repo_file_tab_watches_only_its_folder() {
+        let (root, changes, _watch) = watch_file_tabs(&["plane.toml"]);
+        write(root.path().join("plane.toml"), "version = 2\n");
+        assert!(changed(&changes), "edit");
+        write(root.path().join("notes/todo.md"), "y\n");
+        assert!(!changed(&changes), "a subfolder isn't watched");
+    }
+
+    #[test]
+    fn file_tabs_scope_their_repo_or_folder() {
+        let root = tempfile::tempdir().unwrap();
+        repo(&root.path().join("web"));
+        write(root.path().join("plane.toml"), "");
+        let tabs = [
+            "web/a.txt",
+            "web/src/new.rs",
+            "plane.toml",
+            "web/.git/HEAD",
+            "gone/x",
+        ]
+        .map(String::from);
+        let scope = Scope::with_file_tabs(root.path(), &[], &tabs);
+        let canonical = root.path().canonicalize().unwrap();
+        assert_eq!(scope.worktrees, [canonical.join("web")]);
+        assert_eq!(scope.folders, [canonical.clone()]);
+        assert_eq!(scope.git_dirs, [canonical.join("web/.git")]);
     }
 }

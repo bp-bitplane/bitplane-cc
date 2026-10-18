@@ -21,7 +21,7 @@ use crate::editor;
 use crate::files::{self, FileEntry};
 use crate::files_watch::FilesEvent;
 use crate::git::{self, Repo};
-use crate::git_watch::SourceControlEvent;
+use crate::git_watch::{FileTabsEvent, GitTarget, SourceControlEvent};
 use crate::hooks::{self, AgentHooks};
 use crate::planes;
 use crate::quit::{self, QuitInfo};
@@ -47,6 +47,9 @@ pub struct SourceControlChanged(pub SourceControlEvent);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct FilesChanged(pub FilesEvent);
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+pub struct FileTabsChanged(pub FileTabsEvent);
+
 /// The user asked to quit (⌘Q or closing the window); the frontend decides
 /// whether to confirm.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
@@ -71,7 +74,7 @@ pub fn builder() -> Builder<Wry> {
             plane_create_dismiss,
             plane_open_in_vscode,
             plane_source_control,
-            plane_source_control_watch,
+            plane_git_watch,
             plane_list_dir,
             plane_files_watch,
             plane_open_file,
@@ -92,6 +95,7 @@ pub fn builder() -> Builder<Wry> {
             CreateChanged,
             SourceControlChanged,
             FilesChanged,
+            FileTabsChanged,
             QuitRequested
         ])
         .error_handling(ErrorHandlingMode::Throw)
@@ -227,12 +231,13 @@ async fn plane_source_control(
     git::source_control(&root, &members, &app.tool_env()).await
 }
 
-/// Keep `plane_id`'s Source control current through `source_control_changed`;
-/// `None` stops. Sync, so calls apply in the order the frontend made them.
+/// Keep what `target` shows current, through `source_control_changed` and
+/// `file_tabs_changed`; `None` stops. Sync, so calls apply in the order the
+/// frontend made them.
 #[tauri::command]
 #[specta::specta]
-fn plane_source_control_watch(app: State<'_, AppState>, plane_id: Option<String>) {
-    app.watch_source_control(plane_id);
+fn plane_git_watch(app: State<'_, AppState>, target: Option<GitTarget>) {
+    app.watch_git(target);
 }
 
 /// One folder of a plane for Files; `path` is relative to the plane root.

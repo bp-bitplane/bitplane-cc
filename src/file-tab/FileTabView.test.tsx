@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useStore } from "../store/store";
+import { applyFileTabsChanged, refresh, useStore } from "../store/store";
 import type { FileTab } from "../tabs/fileTabs";
 import { mockBackend, plane, planesModel, seed } from "../test/fixtures";
 import { FileTabView } from "./FileTabView";
@@ -136,5 +136,29 @@ describe("FileTabView", () => {
     render(<FileTabView tab={tab()} />);
     expect(screen.getByRole("heading", { name: "a is gone" })).toBeInTheDocument();
     expect(backend.called("plane_file_diff")).toEqual([]);
+  });
+
+  it("re-reads when its plane's File tabs are pushed", async () => {
+    let diff: object = { kind: "diff", patch: PATCH };
+    const backend = mockBackend({
+      plane_file_diff: () => diff,
+      plane_read_file: () => ({ kind: "text", contents: "committed" }),
+    });
+    render(<FileTabView tab={tab("file")} />);
+    await screen.findByTestId("diff-view");
+    diff = { kind: "plain" };
+    await act(async () => applyFileTabsChanged({ planeId: "other" }));
+    expect(backend.called("plane_file_diff")).toHaveLength(1);
+    await act(async () => applyFileTabsChanged({ planeId: "a" }));
+    expect(await screen.findByText("committed")).toBeInTheDocument();
+  });
+
+  it("re-reads on ⌘⇧R", async () => {
+    const backend = mockBackend({ plane_file_diff: () => ({ kind: "none" }) });
+    useStore.setState({ selectedPlaneId: "a" });
+    render(<FileTabView tab={tab("index")} />);
+    await screen.findByRole("heading", { name: "No changes" });
+    await act(() => refresh());
+    expect(backend.called("plane_file_diff")).toHaveLength(2);
   });
 });

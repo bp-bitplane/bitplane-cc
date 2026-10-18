@@ -12,6 +12,8 @@ import {
   type Envelope,
   events,
   type FilesEvent,
+  type FileTabsEvent,
+  type GitTarget,
   type PlaneRow,
   type PlanesModel,
   type QuitInfo,
@@ -25,7 +27,15 @@ import { detectPlatform, type Platform } from "../keymap";
 import { type FileTab, type FileTabKey, type FileTabMode, fileTabKey } from "../tabs/fileTabs";
 import { toolPanelView } from "../tool-bar/toolPanelView";
 import type { Tool } from "../tool-bar/tools";
-import { activeSession, activeTabId, fileTabsOf, findPlane, sessionsOf, tabsOf } from "./selectors";
+import {
+  activeSession,
+  activeTabId,
+  fileTabsOf,
+  findPlane,
+  sessionsOf,
+  shownPlaneId,
+  tabsOf,
+} from "./selectors";
 import { fromSaved, SAVE_DELAY_MS, toSaved } from "./uiState";
 
 export const DEFAULT_FONT_SIZE = 12;
@@ -155,6 +165,14 @@ export interface FilesSignal {
 
 const filesListeners = new Set<(signal: FilesSignal) => void>();
 
+const fileTabListeners = new Set<(planeId: string) => void>();
+
+/** Plane id → how many mounted views show its Source control. */
+const sourceControlMounts = new Map<string, number>();
+
+/** The last target sent to the git watcher, as JSON. */
+let gitWatchSent = "null";
+
 /** Load the snapshot and follow backend events. Returns an unsubscribe. */
 export async function connect(onQuitRequested: () => void = requestQuit): Promise<() => void> {
   const unlisten = await Promise.all([
@@ -163,13 +181,16 @@ export async function connect(onQuitRequested: () => void = requestQuit): Promis
     events.createChanged.listen((e) => applyCreate(e.payload)),
     events.sourceControlChanged.listen((e) => applySourceControl(e.payload)),
     events.filesChanged.listen((e) => applyFilesChanged(e.payload)),
+    events.fileTabsChanged.listen((e) => applyFileTabsChanged(e.payload)),
     events.quitRequested.listen(() => onQuitRequested()),
   ]);
   loadSnapshot(await commands.snapshot());
   loadUiState(await commands.uiStateLoad().catch(() => null));
   const stopSaving = saveUiStateOnChange();
+  const stopGitWatch = followGitWatch();
   return () => {
     stopSaving();
+    stopGitWatch();
     for (const stop of unlisten) stop();
   };
 }
@@ -468,6 +489,8 @@ export function dismissNotice(): void {
 export async function refresh(): Promise<void> {
   const planeId = shownToolPlaneId();
   if (planeId && get().activeTool === "files") refreshFiles(planeId);
+  const selected = get().selectedPlaneId;
+  if (selected) applyFileTabsChanged({ planeId: selected });
   await Promise.all([commands.refresh(), planeId && loadSourceControl(planeId)]);
 }
 
@@ -566,8 +589,43 @@ export function applySourceControl({ planeId, repos }: SourceControlEvent): void
 
 /** Keep `planeId`'s Source control current while it's on screen; returns a stop. */
 export function watchSourceControl(planeId: string): () => void {
-  void commands.planeSourceControlWatch(planeId).catch(() => undefined);
-  return () => void commands.planeSourceControlWatch(null).catch(() => undefined);
+  sourceControlMounts.set(planeId, (sourceControlMounts.get(planeId) ?? 0) + 1);
+  syncGitWatch();
+  return () => {
+    const mounts = (sourceControlMounts.get(planeId) ?? 1) - 1;
+    if (mounts > 0) sourceControlMounts.set(planeId, mounts);
+    else sourceControlMounts.delete(planeId);
+    syncGitWatch();
+  };
+}
+
+/**
+ * What the git watcher should cover: the plane whose Source control is on
+ * screen, else the shown one, with its open File tabs.
+ */
+export function gitWatchTarget(state: State): GitTarget | null {
+  const mounted = sourceControlMounts.keys().next().value ?? null;
+  const planeId = mounted ?? shownPlaneId(state);
+  if (!planeId) return null;
+  const fileTabs = [...new Set(fileTabsOf(state, planeId).map((tab) => tab.path))];
+  if (mounted === null && fileTabs.length === 0) return null;
+  return { planeId, sourceControl: mounted === planeId, fileTabs };
+}
+
+/** Re-target the git watcher whenever what it should cover changes; returns a stop. */
+export function followGitWatch(): () => void {
+  syncGitWatch();
+  return useStore.subscribe(syncGitWatch);
+}
+
+/** Follow which planes' open File tabs should read again; returns a stop. */
+export function onFileTabsSignal(listener: (planeId: string) => void): () => void {
+  fileTabListeners.add(listener);
+  return () => fileTabListeners.delete(listener);
+}
+
+export function applyFileTabsChanged({ planeId }: FileTabsEvent): void {
+  for (const listener of fileTabListeners) listener(planeId);
 }
 
 export function toggleRepoCollapsed(path: string): void {
@@ -729,6 +787,14 @@ async function onCreateFinished(create: CreateInfo): Promise<void> {
     default:
       break;
   }
+}
+
+function syncGitWatch(): void {
+  const target = gitWatchTarget(get());
+  const json = JSON.stringify(target);
+  if (json === gitWatchSent) return;
+  gitWatchSent = json;
+  void commands.planeGitWatch(target).catch(() => undefined);
 }
 
 /** The plane the open tool is showing, or `null` when no tool is on screen. */

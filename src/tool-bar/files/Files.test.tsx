@@ -224,7 +224,7 @@ describe("Files", () => {
     await settle();
     unmount();
     expect(backend.called("plane_files_watch").at(-1)?.args).toEqual({ planeId: null, dirs: [] });
-    expect(backend.called("plane_source_control_watch").at(-1)?.args).toEqual({ planeId: null });
+    expect(backend.called("plane_git_watch").at(-1)?.args).toEqual({ target: null });
   });
 
   it("explains a plane root it can't list", async () => {

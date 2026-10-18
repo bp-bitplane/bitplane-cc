@@ -17,6 +17,7 @@ import {
   createPlane,
   cyclePlane,
   cycleTab,
+  followGitWatch,
   goToPlane,
   goToTab,
   loadSnapshot,
@@ -28,6 +29,7 @@ import {
   selectPlane,
   selectSession,
   useStore,
+  watchSourceControl,
   zoom,
 } from "./store";
 
@@ -280,6 +282,47 @@ describe("File tabs", () => {
     await flush();
     expect(backend.called("session_close")[0]?.args).toEqual({ id: 2 });
     expect(keys()).toEqual(["file:one.ts"]);
+  });
+});
+
+describe("the git watch", () => {
+  const targets = (backend: ReturnType<typeof mockBackend>) =>
+    backend.called("plane_git_watch").map((c) => c.args.target);
+
+  it("follows the shown plane's File tabs and Source control", () => {
+    const backend = mockBackend();
+    seed({ planes: planesModel([plane("a"), plane("b")]), selectedPlaneId: "a" });
+    const stop = followGitWatch();
+    openFileTab("a", "web/x.ts", "worktree");
+    pinFileTab("a", "worktree:web/x.ts");
+    openFileTab("a", "web/x.ts", "index");
+    openFileTab("a", "plane.toml", "file");
+    const stopSourceControl = watchSourceControl("a");
+    stopSourceControl();
+    closeFileTab("a", "worktree:web/x.ts");
+    closeFileTab("a", "file:plane.toml");
+    stop();
+    expect(targets(backend)).toEqual([
+      { planeId: "a", sourceControl: false, fileTabs: ["web/x.ts"] },
+      { planeId: "a", sourceControl: false, fileTabs: ["web/x.ts", "plane.toml"] },
+      { planeId: "a", sourceControl: true, fileTabs: ["web/x.ts", "plane.toml"] },
+      { planeId: "a", sourceControl: false, fileTabs: ["web/x.ts", "plane.toml"] },
+      { planeId: "a", sourceControl: false, fileTabs: ["plane.toml"] },
+      null,
+    ]);
+  });
+
+  it("drops another plane's File tabs when the selection moves", () => {
+    const backend = mockBackend();
+    seed({ planes: planesModel([plane("a"), plane("b")]), selectedPlaneId: "a" });
+    const stop = followGitWatch();
+    openFileTab("a", "x.ts", "file");
+    useStore.setState({ selectedPlaneId: "b" });
+    stop();
+    expect(targets(backend)).toEqual([
+      { planeId: "a", sourceControl: false, fileTabs: ["x.ts"] },
+      null,
+    ]);
   });
 });
 

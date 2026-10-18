@@ -2,7 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from "react";
 import { commands, type FileContents, type FileDiff, type FileText } from "../ipc";
 import { findPlane } from "../store/selectors";
-import { type DiffStyle, openFile, setDiffStyle, useStore } from "../store/store";
+import { type DiffStyle, onFileTabsSignal, openFile, setDiffStyle, useStore } from "../store/store";
 import { type FileTab, fileTabTitle } from "../tabs/fileTabs";
 import { Centered } from "../ui/Centered";
 import styles from "./FileTabView.module.css";
@@ -24,10 +24,18 @@ export function FileTabView({ tab }: { tab: FileTab }) {
   const [content, setContent] = useState<Content>({ kind: "loading" });
   const [force, setForce] = useState(false);
   const [showAnyway, setShowAnyway] = useState(false);
+  /** Bumped when git or the file changed; the last content stays up meanwhile. */
+  const [version, setVersion] = useState(0);
   const available = planeKind !== "gone" && planeKind !== "creating";
+
+  useEffect(
+    () => onFileTabsSignal((changed) => changed === planeId && setVersion((v) => v + 1)),
+    [planeId],
+  );
 
   useEffect(() => {
     if (!available) return;
+    void version;
     let current = true;
     void load(planeId, path, mode, force).then((loaded) => {
       if (current) setContent(loaded);
@@ -35,7 +43,7 @@ export function FileTabView({ tab }: { tab: FileTab }) {
     return () => {
       current = false;
     };
-  }, [available, planeId, path, mode, force]);
+  }, [available, planeId, path, mode, force, version]);
 
   const loadContents = useCallback(
     () => commands.planeFileContents(planeId, path, mode),

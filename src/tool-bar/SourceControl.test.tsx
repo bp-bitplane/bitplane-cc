@@ -138,10 +138,11 @@ describe("Source control", () => {
       useStore.setState({ toolPanelOpen: false });
       await flush();
     });
-    expect(backend.called("plane_source_control_watch").map((c) => c.args.planeId)).toEqual([
-      "alpha",
+    const targets = backend.called("plane_git_watch").map((c) => c.args.target);
+    expect(targets).toEqual([
+      { planeId: "alpha", sourceControl: true, fileTabs: [] },
       null,
-      "beta",
+      { planeId: "beta", sourceControl: true, fileTabs: [] },
       null,
     ]);
   });

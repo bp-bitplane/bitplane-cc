@@ -29,7 +29,8 @@ use tauri_specta::Event;
 
 use crate::app::{App, DataDir, Emitters};
 use crate::ipc::{
-    CreateChanged, FilesChanged, PlanesChanged, QuitRequested, SessionChanged, SourceControlChanged,
+    CreateChanged, FileTabsChanged, FilesChanged, PlanesChanged, QuitRequested, SessionChanged,
+    SourceControlChanged,
 };
 
 /// Where tauri-specta writes the TypeScript bindings.
@@ -76,6 +77,12 @@ pub fn run() {
                     let handle = handle.clone();
                     Arc::new(move |event| {
                         let _ = SourceControlChanged(event).emit(&handle);
+                    })
+                },
+                file_tabs: {
+                    let handle = handle.clone();
+                    Arc::new(move |event| {
+                        let _ = FileTabsChanged(event).emit(&handle);
                     })
                 },
                 files: {
