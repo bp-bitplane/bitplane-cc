@@ -16,11 +16,12 @@ use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_
 use crate::app::{App, PlanesModel, Snapshot};
 use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
+use crate::diff::{self, DiffMode, FileContents, FileDiff, FileText};
 use crate::editor;
 use crate::files::{self, FileEntry};
 use crate::files_watch::FilesEvent;
 use crate::git::{self, Repo};
-use crate::git_watch::SourceControlEvent;
+use crate::git_watch::{FileTabsEvent, GitTarget, SourceControlEvent};
 use crate::hooks::{self, AgentHooks};
 use crate::planes;
 use crate::quit::{self, QuitInfo};
@@ -46,6 +47,9 @@ pub struct SourceControlChanged(pub SourceControlEvent);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct FilesChanged(pub FilesEvent);
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+pub struct FileTabsChanged(pub FileTabsEvent);
+
 /// The user asked to quit (⌘Q or closing the window); the frontend decides
 /// whether to confirm.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
@@ -70,10 +74,13 @@ pub fn builder() -> Builder<Wry> {
             plane_create_dismiss,
             plane_open_in_vscode,
             plane_source_control,
-            plane_source_control_watch,
+            plane_git_watch,
             plane_list_dir,
             plane_files_watch,
             plane_open_file,
+            plane_file_diff,
+            plane_file_contents,
+            plane_read_file,
             project_list,
             quit_check,
             quit,
@@ -88,6 +95,7 @@ pub fn builder() -> Builder<Wry> {
             CreateChanged,
             SourceControlChanged,
             FilesChanged,
+            FileTabsChanged,
             QuitRequested
         ])
         .error_handling(ErrorHandlingMode::Throw)
@@ -223,12 +231,13 @@ async fn plane_source_control(
     git::source_control(&root, &members, &app.tool_env()).await
 }
 
-/// Keep `plane_id`'s Source control current through `source_control_changed`;
-/// `None` stops. Sync, so calls apply in the order the frontend made them.
+/// Keep what `target` shows current, through `source_control_changed` and
+/// `file_tabs_changed`; `None` stops. Sync, so calls apply in the order the
+/// frontend made them.
 #[tauri::command]
 #[specta::specta]
-fn plane_source_control_watch(app: State<'_, AppState>, plane_id: Option<String>) {
-    app.watch_source_control(plane_id);
+fn plane_git_watch(app: State<'_, AppState>, target: Option<GitTarget>) {
+    app.watch_git(target);
 }
 
 /// One folder of a plane for Files; `path` is relative to the plane root.
@@ -257,8 +266,48 @@ async fn plane_open_file(
     app: State<'_, AppState>,
     plane_id: String,
     path: String,
+    line: Option<u32>,
 ) -> Result<(), String> {
-    editor::open_file_in_vscode(&app.plane_dir(&plane_id)?, &path, &app.tool_env()).await
+    editor::open_file_in_vscode(&app.plane_dir(&plane_id)?, &path, line, &app.tool_env()).await
+}
+
+/// What a File tab of `path` in `mode` shows; `path` is relative to the plane
+/// root. `force` diffs a file even past the size limit ("Show anyway").
+#[tauri::command]
+#[specta::specta]
+async fn plane_file_diff(
+    app: State<'_, AppState>,
+    plane_id: String,
+    path: String,
+    mode: DiffMode,
+    force: bool,
+) -> Result<FileDiff, String> {
+    let (root, _) = app.source_control_target(&plane_id)?;
+    diff::file_diff(&root, &path, mode, force, &app.tool_env()).await
+}
+
+/// Both sides of `path`'s diff in `mode`, for expanding unchanged context.
+#[tauri::command]
+#[specta::specta]
+async fn plane_file_contents(
+    app: State<'_, AppState>,
+    plane_id: String,
+    path: String,
+    mode: DiffMode,
+) -> Result<FileContents, String> {
+    let (root, _) = app.source_control_target(&plane_id)?;
+    diff::file_contents(&root, &path, mode, &app.tool_env()).await
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn plane_read_file(
+    app: State<'_, AppState>,
+    plane_id: String,
+    path: String,
+) -> Result<FileText, String> {
+    let (root, _) = app.source_control_target(&plane_id)?;
+    diff::read_file(&root, &path)
 }
 
 #[tauri::command]

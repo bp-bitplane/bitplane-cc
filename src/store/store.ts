@@ -12,6 +12,8 @@ import {
   type Envelope,
   events,
   type FilesEvent,
+  type FileTabsEvent,
+  type GitTarget,
   type PlaneRow,
   type PlanesModel,
   type QuitInfo,
@@ -22,9 +24,18 @@ import {
   type SourceControlEvent,
 } from "../ipc";
 import { detectPlatform, type Platform } from "../keymap";
+import { type FileTab, type FileTabKey, type FileTabMode, fileTabKey } from "../tabs/fileTabs";
 import { toolPanelView } from "../tool-bar/toolPanelView";
 import type { Tool } from "../tool-bar/tools";
-import { findPlane, sessionsOf } from "./selectors";
+import {
+  activeSession,
+  activeTabId,
+  fileTabsOf,
+  findPlane,
+  sessionsOf,
+  shownPlaneId,
+  tabsOf,
+} from "./selectors";
 import { fromSaved, SAVE_DELAY_MS, toSaved } from "./uiState";
 
 export const DEFAULT_FONT_SIZE = 12;
@@ -50,6 +61,11 @@ export type Dialog =
   | { kind: "quit"; info: QuitInfo }
   | { kind: "agentResume"; hooks: AgentHooks | null; error: string | null };
 
+/** A Session tab by session id, or a File tab by its key within the plane. */
+export type TabId = number | FileTabKey;
+
+export type DiffStyle = "unified" | "split";
+
 export interface CreateFailure {
   envelope: Envelope | null;
   /** bp's log, shown for `create_aborted`. */
@@ -66,7 +82,9 @@ export interface State {
   duplicates: Record<string, string>;
 
   selectedPlaneId: string | null;
-  activeTab: Record<string, number>;
+  activeTab: Record<string, TabId>;
+  /** Plane id → its File tabs, in tab order; never saved. */
+  fileTabs: Record<string, FileTab[]>;
   /** Planes the user collapsed; a plane with sessions starts expanded. */
   collapsed: Record<string, boolean>;
   dialog: Dialog | null;
@@ -79,6 +97,8 @@ export interface State {
   activeTool: Tool;
   toolPanelWidth: number;
   sidebarWidth: number;
+  /** How File tabs lay out a diff; saved. */
+  diffStyle: DiffStyle;
   sourceControl: SourceControl | null;
   /** Repo path → collapsed in Source control; never saved. */
   repoCollapsed: Record<string, boolean>;
@@ -110,6 +130,7 @@ export const initialState = (): State => ({
   duplicates: {},
   selectedPlaneId: null,
   activeTab: {},
+  fileTabs: {},
   collapsed: {},
   dialog: null,
   fontSize: DEFAULT_FONT_SIZE,
@@ -119,6 +140,7 @@ export const initialState = (): State => ({
   activeTool: "sourceControl",
   toolPanelWidth: DEFAULT_TOOL_PANEL_WIDTH,
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+  diffStyle: "unified",
   sourceControl: null,
   repoCollapsed: {},
   filesExpanded: {},
@@ -143,6 +165,14 @@ export interface FilesSignal {
 
 const filesListeners = new Set<(signal: FilesSignal) => void>();
 
+const fileTabListeners = new Set<(planeId: string) => void>();
+
+/** Plane id → how many mounted views show its Source control. */
+const sourceControlMounts = new Map<string, number>();
+
+/** The last target sent to the git watcher, as JSON. */
+let gitWatchSent = "null";
+
 /** Load the snapshot and follow backend events. Returns an unsubscribe. */
 export async function connect(onQuitRequested: () => void = requestQuit): Promise<() => void> {
   const unlisten = await Promise.all([
@@ -151,13 +181,16 @@ export async function connect(onQuitRequested: () => void = requestQuit): Promis
     events.createChanged.listen((e) => applyCreate(e.payload)),
     events.sourceControlChanged.listen((e) => applySourceControl(e.payload)),
     events.filesChanged.listen((e) => applyFilesChanged(e.payload)),
+    events.fileTabsChanged.listen((e) => applyFileTabsChanged(e.payload)),
     events.quitRequested.listen(() => onQuitRequested()),
   ]);
   loadSnapshot(await commands.snapshot());
   loadUiState(await commands.uiStateLoad().catch(() => null));
   const stopSaving = saveUiStateOnChange();
+  const stopGitWatch = followGitWatch();
   return () => {
     stopSaving();
+    stopGitWatch();
     for (const stop of unlisten) stop();
   };
 }
@@ -220,22 +253,14 @@ export function applySession({ id, session }: SessionEvent): void {
   if (!session) {
     closedSessions.add(id);
     if (!previous) return;
-    const siblings = sessionsOf(state, previous.planeId);
-    const index = siblings.findIndex((s) => s.id === id);
-    const remaining = siblings.filter((s) => s.id !== id);
     const { [id]: _, ...sessions } = state.sessions;
-    const activeTab = { ...state.activeTab };
-    if (activeTab[previous.planeId] === id) {
-      const neighbour = remaining[Math.min(index, remaining.length - 1)];
-      if (neighbour) activeTab[previous.planeId] = neighbour.id;
-      else delete activeTab[previous.planeId];
-    }
-    set({ sessions, activeTab });
+    set({ sessions, activeTab: activeAfterClosing(state, previous.planeId, id) });
     return;
   }
-  const activeTab = state.activeTab[session.planeId]
-    ? state.activeTab
-    : { ...state.activeTab, [session.planeId]: id };
+  const activeTab =
+    state.activeTab[session.planeId] !== undefined
+      ? state.activeTab
+      : { ...state.activeTab, [session.planeId]: id };
   set({ sessions: { ...state.sessions, [id]: session }, activeTab });
 }
 
@@ -264,9 +289,13 @@ export function selectPlane(planeId: string): void {
 }
 
 export function selectSession(planeId: string, sessionId: number): void {
+  selectTab(planeId, sessionId);
+}
+
+export function selectTab(planeId: string, id: TabId): void {
   set((state) => ({
     selectedPlaneId: planeId,
-    activeTab: { ...state.activeTab, [planeId]: sessionId },
+    activeTab: { ...state.activeTab, [planeId]: id },
     notice: null,
   }));
 }
@@ -309,6 +338,16 @@ export async function requestCloseSession(sessionId = activeSessionId()): Promis
   await closeSession(sessionId);
 }
 
+/** ⌘W: the active Tab of either kind. */
+export function closeActiveTab(): void {
+  const state = get();
+  const planeId = state.selectedPlaneId;
+  const id = activeTabId(state, planeId);
+  if (!planeId || id === undefined) return;
+  if (typeof id === "number") void requestCloseSession(id);
+  else closeFileTab(planeId, id);
+}
+
 export async function closeSession(sessionId: number): Promise<void> {
   if (get().dialog?.kind === "confirmClose") set({ dialog: null });
   await commands.sessionClose(sessionId);
@@ -326,11 +365,54 @@ export function cycleTab(delta: number): void {
   const state = get();
   const planeId = state.selectedPlaneId;
   if (!planeId) return;
-  const tabs = sessionsOf(state, planeId);
+  const tabs = tabsOf(state, planeId);
   if (tabs.length === 0) return;
-  const index = tabs.findIndex((s) => s.id === activeSessionId());
+  const active = activeTabId(state, planeId);
+  const index = active === undefined ? -1 : tabs.indexOf(active);
   const next = tabs[(index + delta + tabs.length) % tabs.length];
-  if (next) selectSession(planeId, next.id);
+  if (next !== undefined) selectTab(planeId, next);
+}
+
+/**
+ * Focus the File tab if it's open; otherwise open it as the plane's preview,
+ * in place of the current one.
+ */
+export function openFileTab(planeId: string, path: string, mode: FileTabMode): void {
+  const key = fileTabKey({ path, mode });
+  set((state) => {
+    const tabs = fileTabsOf(state, planeId);
+    const focus = {
+      selectedPlaneId: planeId,
+      activeTab: { ...state.activeTab, [planeId]: key },
+      notice: null,
+    };
+    if (tabs.some((tab) => fileTabKey(tab) === key)) return focus;
+    const tab: FileTab = { planeId, path, mode, pinned: false };
+    const preview = tabs.findIndex((t) => !t.pinned);
+    const next = preview === -1 ? [...tabs, tab] : tabs.map((t, i) => (i === preview ? tab : t));
+    return { ...focus, fileTabs: { ...state.fileTabs, [planeId]: next } };
+  });
+}
+
+export function pinFileTab(planeId: string, key: FileTabKey): void {
+  set((state) => ({
+    fileTabs: {
+      ...state.fileTabs,
+      [planeId]: fileTabsOf(state, planeId).map((tab) =>
+        fileTabKey(tab) === key ? { ...tab, pinned: true } : tab,
+      ),
+    },
+  }));
+}
+
+export function closeFileTab(planeId: string, key: FileTabKey): void {
+  set((state) => ({
+    activeTab: activeAfterClosing(state, planeId, key),
+    fileTabs: {
+      ...state.fileTabs,
+      [planeId]: fileTabsOf(state, planeId).filter((tab) => fileTabKey(tab) !== key),
+    },
+  }));
 }
 
 export function goToTab(position: number): void {
@@ -407,6 +489,8 @@ export function dismissNotice(): void {
 export async function refresh(): Promise<void> {
   const planeId = shownToolPlaneId();
   if (planeId && get().activeTool === "files") refreshFiles(planeId);
+  const selected = get().selectedPlaneId;
+  if (selected) applyFileTabsChanged({ planeId: selected });
   await Promise.all([commands.refresh(), planeId && loadSourceControl(planeId)]);
 }
 
@@ -466,6 +550,10 @@ export function setToolPanelWidth(width: number): void {
   set({ toolPanelWidth: clampToolPanelWidth(width) });
 }
 
+export function setDiffStyle(diffStyle: DiffStyle): void {
+  set({ diffStyle });
+}
+
 export function setSidebarWidth(width: number): void {
   set({ sidebarWidth: clampSidebarWidth(width) });
 }
@@ -501,8 +589,43 @@ export function applySourceControl({ planeId, repos }: SourceControlEvent): void
 
 /** Keep `planeId`'s Source control current while it's on screen; returns a stop. */
 export function watchSourceControl(planeId: string): () => void {
-  void commands.planeSourceControlWatch(planeId).catch(() => undefined);
-  return () => void commands.planeSourceControlWatch(null).catch(() => undefined);
+  sourceControlMounts.set(planeId, (sourceControlMounts.get(planeId) ?? 0) + 1);
+  syncGitWatch();
+  return () => {
+    const mounts = (sourceControlMounts.get(planeId) ?? 1) - 1;
+    if (mounts > 0) sourceControlMounts.set(planeId, mounts);
+    else sourceControlMounts.delete(planeId);
+    syncGitWatch();
+  };
+}
+
+/**
+ * What the git watcher should cover: the plane whose Source control is on
+ * screen, else the shown one, with its open File tabs.
+ */
+export function gitWatchTarget(state: State): GitTarget | null {
+  const mounted = sourceControlMounts.keys().next().value ?? null;
+  const planeId = mounted ?? shownPlaneId(state);
+  if (!planeId) return null;
+  const fileTabs = [...new Set(fileTabsOf(state, planeId).map((tab) => tab.path))];
+  if (mounted === null && fileTabs.length === 0) return null;
+  return { planeId, sourceControl: mounted === planeId, fileTabs };
+}
+
+/** Re-target the git watcher whenever what it should cover changes; returns a stop. */
+export function followGitWatch(): () => void {
+  syncGitWatch();
+  return useStore.subscribe(syncGitWatch);
+}
+
+/** Follow which planes' open File tabs should read again; returns a stop. */
+export function onFileTabsSignal(listener: (planeId: string) => void): () => void {
+  fileTabListeners.add(listener);
+  return () => fileTabListeners.delete(listener);
+}
+
+export function applyFileTabsChanged({ planeId }: FileTabsEvent): void {
+  for (const listener of fileTabListeners) listener(planeId);
 }
 
 export function toggleRepoCollapsed(path: string): void {
@@ -545,9 +668,9 @@ export function watchFiles(planeId: string, dirs: string[]): () => void {
   return () => void commands.planeFilesWatch(null, []).catch(() => undefined);
 }
 
-export async function openFile(planeId: string, path: string): Promise<void> {
+export async function openFile(planeId: string, path: string, line?: number): Promise<void> {
   try {
-    await commands.planeOpenFile(planeId, path);
+    await commands.planeOpenFile(planeId, path, line ?? null);
   } catch (error) {
     set({ notice: String(error) });
   }
@@ -615,11 +738,20 @@ function clampWidth(width: number, min: number, max: number): number {
 
 function activeSessionId(): number | undefined {
   const state = get();
-  const planeId = state.selectedPlaneId;
-  if (!planeId) return undefined;
-  const active = state.activeTab[planeId];
-  const tabs = sessionsOf(state, planeId);
-  return tabs.find((s) => s.id === active)?.id ?? tabs[0]?.id;
+  return activeSession(state, state.selectedPlaneId)?.id;
+}
+
+/** `activeTab` once `id` closes: an active Tab hands focus to its neighbour. */
+function activeAfterClosing(state: State, planeId: string, id: TabId): Record<string, TabId> {
+  const activeTab = { ...state.activeTab };
+  if (activeTabId(state, planeId) !== id) return activeTab;
+  const tabs = tabsOf(state, planeId);
+  const index = tabs.indexOf(id);
+  const remaining = tabs.filter((tab) => tab !== id);
+  const neighbour = remaining[Math.min(index, remaining.length - 1)];
+  if (neighbour !== undefined) activeTab[planeId] = neighbour;
+  else delete activeTab[planeId];
+  return activeTab;
 }
 
 async function onCreateFinished(create: CreateInfo): Promise<void> {
@@ -655,6 +787,14 @@ async function onCreateFinished(create: CreateInfo): Promise<void> {
     default:
       break;
   }
+}
+
+function syncGitWatch(): void {
+  const target = gitWatchTarget(get());
+  const json = JSON.stringify(target);
+  if (json === gitWatchSent) return;
+  gitWatchSent = json;
+  void commands.planeGitWatch(target).catch(() => undefined);
 }
 
 /** The plane the open tool is showing, or `null` when no tool is on screen. */

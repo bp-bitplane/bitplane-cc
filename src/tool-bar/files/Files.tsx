@@ -5,6 +5,7 @@ import { findPlane } from "../../store/selectors";
 import {
   loadSourceControl,
   openFile,
+  openFileTab,
   refreshFiles,
   setFilesExpanded,
   useStore,
@@ -13,7 +14,7 @@ import {
 } from "../../store/store";
 import { Centered } from "../../ui/Centered";
 import { PanelActions, PanelButton } from "../PanelButton";
-import { FileTree, type MenuAction } from "./FileTree";
+import { FileTree, type MenuAction, type MenuEntry } from "./FileTree";
 import { fileStatuses, initialExpanded, listingKey, repoBranches, treeData } from "./filesTree";
 import { useListings } from "./useListings";
 
@@ -96,11 +97,25 @@ function PlaneFiles({ planeId }: { planeId: string }) {
       expanded={expanded ?? NONE}
       onExpandedChange={(paths) => setFilesExpanded(planeId, paths)}
       onOpen={(path) => {
+        if (!tree.errors.has(path)) openFileTab(planeId, path, "file");
+      }}
+      onOpenExternal={(path) => {
         if (!tree.errors.has(path)) void openFile(planeId, path);
       }}
-      menu={(path) => (tree.errors.has(path) ? [] : copyActions(planeDir, path))}
+      menu={(path) => (tree.errors.has(path) ? [] : menuFor(planeId, planeDir, path))}
     />
   );
+}
+
+/** Folders only get the copy actions; files open as a File tab or in VS Code first. */
+function menuFor(planeId: string, planeDir: string | null, path: string): MenuEntry[] {
+  if (path.endsWith("/")) return copyActions(planeDir, path);
+  return [
+    { label: "Open", run: () => openFileTab(planeId, path, "file") },
+    { label: "Open in VS Code", run: () => void openFile(planeId, path) },
+    "separator",
+    ...copyActions(planeDir, path),
+  ];
 }
 
 function copyActions(planeDir: string | null, path: string): MenuAction[] {

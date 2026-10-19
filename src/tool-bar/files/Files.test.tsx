@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { FileEntry } from "../../ipc";
 import { applyFilesChanged, useStore } from "../../store/store";
@@ -153,7 +153,7 @@ describe("Files", () => {
     expect(paths()).toEqual(["projects/", "plane.toml"]);
   });
 
-  it("opens a file in VS Code on double-click", async () => {
+  it("opens a file as the plane's preview File tab on double-click", async () => {
     const { backend } = show();
     await settle();
     act(() => {
@@ -162,8 +162,39 @@ describe("Files", () => {
       );
     });
     await settle();
+    expect(useStore.getState().fileTabs.alpha).toEqual([
+      { planeId: "alpha", path: "projects/web/a.ts", mode: "file", pinned: false },
+    ]);
+    expect(useStore.getState().activeTab.alpha).toBe("file:projects/web/a.ts");
+    expect(backend.called("plane_open_file")).toEqual([]);
+  });
+
+  it("opens a file from its context menu, as a File tab or in VS Code", async () => {
+    const { backend } = show();
+    await settle();
+    const menu = async () => {
+      act(() => {
+        row("projects/web/a.ts").dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, composed: true }),
+        );
+      });
+      await settle();
+    };
+    await menu();
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Open",
+      "Open in VS Code",
+      "Copy path",
+      "Copy relative path",
+    ]);
+    expect(within(screen.getByRole("menu")).getByRole("separator")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Open" }));
+    expect(useStore.getState().activeTab.alpha).toBe("file:projects/web/a.ts");
+    await menu();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Open in VS Code" }));
+    await settle();
     expect(backend.called("plane_open_file")).toEqual([
-      { cmd: "plane_open_file", args: { planeId: "alpha", path: "projects/web/a.ts" } },
+      { cmd: "plane_open_file", args: { planeId: "alpha", path: "projects/web/a.ts", line: null } },
     ]);
   });
 
@@ -193,7 +224,7 @@ describe("Files", () => {
     await settle();
     unmount();
     expect(backend.called("plane_files_watch").at(-1)?.args).toEqual({ planeId: null, dirs: [] });
-    expect(backend.called("plane_source_control_watch").at(-1)?.args).toEqual({ planeId: null });
+    expect(backend.called("plane_git_watch").at(-1)?.args).toEqual({ target: null });
   });
 
   it("explains a plane root it can't list", async () => {

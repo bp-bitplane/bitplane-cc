@@ -1,0 +1,5 @@
+# Tabs are not only sessions
+
+A plane's tab bar holds two kinds of Tab: session tabs, then file tabs. A file tab shows one file of the plane, from Source control or Files, and is identified by (plane, path, mode), where mode is `index` (HEAD↔index), `worktree` (index↔worktree) or `file` (HEAD↔worktree). File tabs live only in the frontend store: the backend owns sessions (ADR 0004), but a file tab has no process behind it, so nothing about it crosses IPC. Like VS Code, a plane has one unpinned **preview** file tab, shown in italics and replaced by the next file opened; double-clicking it pins it. ⌘W and tab cycling cover both kinds, while ⌘1…9 keeps counting sessions so the numbers people have learned don't shift when a file opens.
+
+File tabs are not restored (ADR 0005 is unchanged and `sessions.json` keeps only sessions). They are cheap to reopen and their contents are read fresh anyway; restoring them would mean persisting tabs whose files may be gone or committed by the time the app starts. The saved active tab can name a file tab, and restore falls back to the plane's last session. Revisit if people keep reopening the same files after every launch.

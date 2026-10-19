@@ -17,7 +17,7 @@ use crate::create::{CreateEvent, CreateInfo, CreateStatus, Creates};
 use crate::env::{self, CapturedEnv, EnvMap};
 use crate::files_watch::{self, FilesEvent, FilesWatch};
 use crate::git;
-use crate::git_watch::{GitWatch, Scope, SourceControlEvent};
+use crate::git_watch::{FileTabsEvent, GitTarget, GitWatch, Scope, SourceControlEvent};
 use crate::persist::{self, Persister};
 use crate::planes::{self, PlaneKind, PlaneRow, Source, Watcher};
 use crate::sessions::{Restore, SessionEvent, SessionInfo, Sessions, SpawnConfig};
@@ -102,6 +102,7 @@ pub struct Emitters {
     pub create: Arc<dyn Fn(CreateEvent) + Send + Sync>,
     pub source_control: Arc<dyn Fn(SourceControlEvent) + Send + Sync>,
     pub files: Arc<dyn Fn(FilesEvent) + Send + Sync>,
+    pub file_tabs: Arc<dyn Fn(FileTabsEvent) + Send + Sync>,
 }
 
 pub struct App {
@@ -118,10 +119,11 @@ pub struct App {
     refresh_needed: Arc<Notify>,
     emit_planes: EmitPlanes,
     /// The plane Source control is showing; `None` while it's off screen.
-    source_control_plane: Mutex<Option<String>>,
+    git_target: Mutex<Option<GitTarget>>,
     git_watch: Mutex<Option<GitWatch>>,
     source_control_needed: Arc<Notify>,
     emit_source_control: Arc<dyn Fn(SourceControlEvent) + Send + Sync>,
+    emit_file_tabs: Arc<dyn Fn(FileTabsEvent) + Send + Sync>,
     /// The plane Files is showing and its expanded folders; `None` while it's off screen.
     files_target: Mutex<Option<(String, Vec<String>)>>,
     files_watch: Mutex<Option<FilesWatch>>,
@@ -210,10 +212,11 @@ impl App {
             remerge_lock: Mutex::new(()),
             refresh_needed: Arc::new(Notify::new()),
             emit_planes: emitters.planes,
-            source_control_plane: Mutex::new(None),
+            git_target: Mutex::new(None),
             git_watch: Mutex::new(None),
             source_control_needed: Arc::new(Notify::new()),
             emit_source_control: emitters.source_control,
+            emit_file_tabs: emitters.file_tabs,
             files_target: Mutex::new(None),
             files_watch: Mutex::new(None),
             emit_files: emitters.files,
@@ -313,7 +316,7 @@ impl App {
             loop {
                 needed.notified().await;
                 let Some(app) = app.upgrade() else { return };
-                app.read_source_control().await;
+                app.read_git_target().await;
             }
         });
 
@@ -345,37 +348,60 @@ impl App {
         watch.set_scope(scope);
     }
 
-    /// Point the git watcher at `plane_id`'s repos, or stop it with `None`.
-    pub fn watch_source_control(self: &Arc<Self>, plane_id: Option<String>) {
-        *self.source_control_plane.lock().unwrap() = plane_id;
+    /// Point the git watcher at what `target` shows, or stop it with `None`.
+    pub fn watch_git(self: &Arc<Self>, target: Option<GitTarget>) {
+        *self.git_target.lock().unwrap() = target;
         let app = Arc::clone(self);
         tauri::async_runtime::spawn_blocking(move || app.retarget_git_watch());
     }
 
-    /// Re-read what the watcher should cover; the latest plane always wins,
+    /// Re-read what the watcher should cover; the latest target always wins,
     /// as it's read under the watcher's lock.
     fn retarget_git_watch(&self) {
         let mut watch = self.git_watch.lock().unwrap();
         let Some(watch) = watch.as_mut() else { return };
-        let plane_id = self.source_control_plane.lock().unwrap().clone();
-        let scope = plane_id
-            .and_then(|id| self.source_control_target(&id).ok())
-            .map(|(root, members)| Scope::of(&git::repo_dirs(&root, &members)))
+        let target = self.git_target.lock().unwrap().clone();
+        let scope = target
+            .and_then(|target| {
+                let (root, members) = self.source_control_target(&target.plane_id).ok()?;
+                let repos = if target.source_control {
+                    git::repo_dirs(&root, &members)
+                } else {
+                    Vec::new()
+                };
+                Some(Scope::with_file_tabs(&root, &repos, &target.file_tabs))
+            })
             .unwrap_or_default();
         watch.set_scope(scope);
     }
 
-    async fn read_source_control(&self) {
-        let Some(plane_id) = self.source_control_plane.lock().unwrap().clone() else {
+    /// Push a fresh Source control read and tell open File tabs to re-read.
+    async fn read_git_target(&self) {
+        let Some(target) = self.git_target.lock().unwrap().clone() else {
             return;
         };
+        let plane_id = target.plane_id;
+        if !target.file_tabs.is_empty() {
+            (self.emit_file_tabs)(FileTabsEvent {
+                plane_id: plane_id.clone(),
+            });
+        }
+        if !target.source_control {
+            return;
+        }
         let Ok((root, members)) = self.source_control_target(&plane_id) else {
             return;
         };
         let Ok(repos) = git::source_control(&root, &members, &self.tool_env()).await else {
             return;
         };
-        if self.source_control_plane.lock().unwrap().as_ref() == Some(&plane_id) {
+        let still_shown = self
+            .git_target
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|target| target.plane_id == plane_id && target.source_control);
+        if still_shown {
             (self.emit_source_control)(SourceControlEvent { plane_id, repos });
         }
     }
@@ -442,7 +468,7 @@ impl App {
         }
         self.creates.update_phases();
         self.remerge();
-        if self.source_control_plane.lock().unwrap().is_some() {
+        if self.git_target.lock().unwrap().is_some() {
             self.retarget_git_watch();
         }
     }
@@ -684,6 +710,7 @@ mod tests {
                 create: Arc::new(|_| {}),
                 source_control: Arc::new(|_| {}),
                 files: Arc::new(|_| {}),
+                file_tabs: Arc::new(|_| {}),
             },
         )
     }
@@ -692,9 +719,13 @@ mod tests {
     #[test]
     fn watch_commands_run_outside_a_runtime() {
         let app = quiet_app();
-        app.watch_source_control(Some("alpha".into()));
+        app.watch_git(Some(GitTarget {
+            plane_id: "alpha".into(),
+            source_control: true,
+            file_tabs: vec!["a.txt".into()],
+        }));
         app.watch_files(Some(("alpha".into(), vec![String::new()])));
-        app.watch_source_control(None);
+        app.watch_git(None);
         app.watch_files(None);
     }
 

@@ -26,10 +26,16 @@ export const commands = {
 	planeOpenInVscode: (planeId: string) => __TAURI_INVOKE<null>("plane_open_in_vscode", { planeId }),
 	planeSourceControl: (planeId: string) => __TAURI_INVOKE<Repo[]>("plane_source_control", { planeId }),
 	/**
-	 *  Keep `plane_id`'s Source control current through `source_control_changed`;
-	 *  `None` stops. Sync, so calls apply in the order the frontend made them.
+	 *  Keep what `target` shows current, through `source_control_changed` and
+	 *  `file_tabs_changed`; `None` stops. Sync, so calls apply in the order the
+	 *  frontend made them.
 	 */
-	planeSourceControlWatch: (planeId: string | null) => __TAURI_INVOKE<void>("plane_source_control_watch", { planeId }),
+	planeGitWatch: (target: {
+	planeId: string,
+	sourceControl: boolean,
+	/**  The plane's open File tabs, relative to its root. */
+	fileTabs: string[],
+} | null) => __TAURI_INVOKE<void>("plane_git_watch", { target }),
 	/**  One folder of a plane for Files; `path` is relative to the plane root. */
 	planeListDir: (planeId: string, path: string) => __TAURI_INVOKE<FileEntry[]>("plane_list_dir", { planeId, path }),
 	/**
@@ -37,7 +43,15 @@ export const commands = {
 	 *  stops. Sync, so calls apply in the order the frontend made them.
 	 */
 	planeFilesWatch: (planeId: string | null, dirs: string[]) => __TAURI_INVOKE<void>("plane_files_watch", { planeId, dirs }),
-	planeOpenFile: (planeId: string, path: string) => __TAURI_INVOKE<null>("plane_open_file", { planeId, path }),
+	planeOpenFile: (planeId: string, path: string, line: number | null) => __TAURI_INVOKE<null>("plane_open_file", { planeId, path, line }),
+	/**
+	 *  What a File tab of `path` in `mode` shows; `path` is relative to the plane
+	 *  root. `force` diffs a file even past the size limit ("Show anyway").
+	 */
+	planeFileDiff: (planeId: string, path: string, mode: DiffMode, force: boolean) => __TAURI_INVOKE<FileDiff>("plane_file_diff", { planeId, path, mode, force }),
+	/**  Both sides of `path`'s diff in `mode`, for expanding unchanged context. */
+	planeFileContents: (planeId: string, path: string, mode: DiffMode) => __TAURI_INVOKE<FileContents>("plane_file_contents", { planeId, path, mode }),
+	planeReadFile: (planeId: string, path: string) => __TAURI_INVOKE<FileText>("plane_read_file", { planeId, path }),
 	projectList: () => __TAURI_INVOKE<Project[]>("project_list"),
 	quitCheck: () => __TAURI_INVOKE<QuitInfo>("quit_check"),
 	quit: () => __TAURI_INVOKE<void>("quit"),
@@ -51,6 +65,7 @@ export const commands = {
 /** Events */
 export const events = {
 	createChanged: makeEvent<CreateChanged>("create-changed"),
+	fileTabsChanged: makeEvent<FileTabsChanged>("file-tabs-changed"),
 	filesChanged: makeEvent<FilesChanged>("files-changed"),
 	planesChanged: makeEvent<PlanesChanged>("planes-changed"),
 	quitRequested: makeEvent<QuitRequested>("quit-requested"),
@@ -134,6 +149,14 @@ export type CreateStatus = { kind: "running" } | { kind: "succeeded" } |
 /**  A partial plane is left behind; only `bp destroy` cleans it up. */
 { kind: "partial"; envelope: Envelope | null };
 
+export type DiffMode = 
+/**  HEAD ↔ index. */
+"index" | 
+/**  Index ↔ worktree. */
+"worktree" | 
+/**  HEAD ↔ worktree. */
+"file";
+
 /**  bp's failure envelope, the last line of stderr. */
 export type Envelope = {
 	error: string,
@@ -142,6 +165,17 @@ export type Envelope = {
 	problems?: Problem[],
 	remedy?: string | null,
 };
+
+export type FileContents = {
+	old: string,
+	new: string,
+};
+
+export type FileDiff = { kind: "diff"; patch: string } | 
+/**  Nothing to compare: ignored, outside any repo, or unchanged in `file` mode. */
+{ kind: "plain" } | { kind: "binary"; oldSize: number; newSize: number } | { kind: "tooLarge"; size: number } | 
+/**  The change this `index` or `worktree` tab showed is gone. */
+{ kind: "none" };
 
 export type FileEntry = {
 	name: string,
@@ -152,6 +186,15 @@ export type FileEntry = {
 
 export type FileKind = "file" | "directory";
 
+export type FileTabsChanged = FileTabsEvent;
+
+/**  `file_tabs_changed`: the open File tabs of a watched plane may be stale. */
+export type FileTabsEvent = {
+	planeId: string,
+};
+
+export type FileText = { kind: "text"; contents: string } | { kind: "binary"; size: number } | { kind: "tooLarge"; size: number };
+
 export type FilesChanged = FilesEvent;
 
 /**  `files_changed`: folders of a watched plane to list again. */
@@ -159,6 +202,14 @@ export type FilesEvent = {
 	planeId: string,
 	/**  Relative to the plane root; `""` is the root. */
 	dirs: string[],
+};
+
+/**  What the frontend has on screen that git changes can make stale. */
+export type GitTarget = {
+	planeId: string,
+	sourceControl: boolean,
+	/**  The plane's open File tabs, relative to its root. */
+	fileTabs: string[],
 };
 
 export type Head = { kind: "branch"; name: string } | { kind: "detached"; sha: string };

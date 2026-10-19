@@ -10,15 +10,18 @@ import {
 import { type ReactNode, useEffect } from "react";
 import type { Change, ChangeKind, Repo, Status } from "../ipc";
 import { labelFor } from "../keymap";
+import { activeFileTab, findPlane } from "../store/selectors";
 import {
   loadSourceControl,
+  openFileTab,
   setAllReposCollapsed,
   toggleRepoCollapsed,
   useStore,
   watchSourceControl,
 } from "../store/store";
+import type { FileTabMode } from "../tabs/fileTabs";
 import { Centered } from "../ui/Centered";
-import { headLabel } from "./files/filesTree";
+import { headLabel, repoPrefix } from "./files/filesTree";
 import { PanelActions, PanelButton } from "./PanelButton";
 import styles from "./SourceControl.module.css";
 
@@ -47,7 +50,7 @@ export function SourceControl({ planeId }: { planeId: string }) {
   return (
     <div className={styles.repos}>
       {current.repos.map((repo) => (
-        <RepoSection key={repo.path} repo={repo} />
+        <RepoSection key={repo.path} planeId={planeId} repo={repo} />
       ))}
     </div>
   );
@@ -83,7 +86,7 @@ const KIND_LETTERS: Record<ChangeKind, string> = {
   conflicted: "!",
 };
 
-function RepoSection({ repo }: { repo: Repo }) {
+function RepoSection({ planeId, repo }: { planeId: string; repo: Repo }) {
   const expanded = useStore((s) => !s.repoCollapsed[repo.path]);
   const status = repo.state.kind === "ready" ? repo.state.status : null;
   return (
@@ -106,7 +109,7 @@ function RepoSection({ repo }: { repo: Repo }) {
           <TriangleAlert className={styles.warn} size={13} aria-label="warning" />
         )}
       </button>
-      {expanded && <RepoBody repo={repo} />}
+      {expanded && <RepoBody planeId={planeId} repo={repo} />}
     </section>
   );
 }
@@ -138,7 +141,8 @@ function RepoSummary({ status }: { status: Status }) {
   );
 }
 
-function RepoBody({ repo }: { repo: Repo }) {
+function RepoBody({ planeId, repo }: { planeId: string; repo: Repo }) {
+  const prefix = useStore((s) => repoPrefix(repo, findPlane(s, planeId)?.directory ?? ""));
   switch (repo.state.kind) {
     case "missing":
       return <Row warn>Worktree missing: {repo.path}</Row>;
@@ -149,13 +153,16 @@ function RepoBody({ repo }: { repo: Repo }) {
       if (staged.length + unstaged.length + untracked.length === 0) {
         return <Row>No changes</Row>;
       }
+      const target = prefix === null ? null : { planeId, prefix };
       return (
         <>
-          <Group title="Staged" changes={staged} />
-          <Group title="Changes" changes={unstaged} />
+          <Group title="Staged" changes={staged} target={target} mode="index" />
+          <Group title="Changes" changes={unstaged} target={target} mode="worktree" />
           <Group
             title="Untracked"
             changes={untracked.map((path) => ({ path, kind: "added", from: null }))}
+            target={target}
+            mode="file"
             letter="U"
           />
         </>
@@ -164,7 +171,27 @@ function RepoBody({ repo }: { repo: Repo }) {
   }
 }
 
-function Group({ title, changes, letter }: { title: string; changes: Change[]; letter?: string }) {
+/** Where a repo's change paths sit in the plane; `null` for a repo outside it. */
+interface Target {
+  planeId: string;
+  /** The repo's folder in the plane: "" at the root, else "dir/". */
+  prefix: string;
+}
+
+function Group({
+  title,
+  changes,
+  target,
+  mode,
+  letter,
+}: {
+  title: string;
+  changes: Change[];
+  target: Target | null;
+  mode: FileTabMode;
+  letter?: string;
+}) {
+  const active = useStore((s) => (target ? activeFileTab(s, target.planeId) : undefined));
   if (changes.length === 0) return null;
   return (
     <ul className={styles.group} aria-label={title}>
@@ -172,19 +199,41 @@ function Group({ title, changes, letter }: { title: string; changes: Change[]; l
         {title}
         <span className={styles.count}>{changes.length}</span>
       </li>
-      {changes.map((change) => (
-        <li
-          key={change.path}
-          className={styles.file}
-          title={change.from ? `${change.from} → ${change.path}` : change.path}
-        >
-          <span className={styles.fileName}>{fileName(change.path)}</span>
-          <span className={styles.fileDir}>{dirName(change.path)}</span>
-          <span className={`${styles.kind} ${styles[letter ? "untracked" : change.kind]}`}>
-            {letter ?? KIND_LETTERS[change.kind]}
-          </span>
-        </li>
-      ))}
+      {changes.map((change) => {
+        const row = (
+          <>
+            <span className={styles.fileName}>{fileName(change.path)}</span>
+            <span className={styles.fileDir}>{dirName(change.path)}</span>
+            <span className={`${styles.kind} ${styles[letter ? "untracked" : change.kind]}`}>
+              {letter ?? KIND_LETTERS[change.kind]}
+            </span>
+          </>
+        );
+        const title = change.from ? `${change.from} → ${change.path}` : change.path;
+        // An untracked folder (`dir/`) has no single file to open.
+        if (!target || change.path.endsWith("/")) {
+          return (
+            <li key={change.path} className={styles.file} title={title}>
+              {row}
+            </li>
+          );
+        }
+        const path = target.prefix + change.path;
+        const current = active?.path === path && active.mode === mode;
+        return (
+          <li key={change.path}>
+            <button
+              type="button"
+              className={`${styles.file} ${current ? styles.current : ""}`}
+              title={title}
+              aria-current={current || undefined}
+              onClick={() => openFileTab(target.planeId, path, mode)}
+            >
+              {row}
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }

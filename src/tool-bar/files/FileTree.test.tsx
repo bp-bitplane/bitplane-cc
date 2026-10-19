@@ -14,6 +14,7 @@ function show(overrides: Partial<FileTreeProps> = {}) {
     expanded: ["src/"],
     onExpandedChange: vi.fn(),
     onOpen: vi.fn(),
+    onOpenExternal: vi.fn(),
     menu: () => [],
     ...overrides,
   };
@@ -102,6 +103,21 @@ describe("FileTree", () => {
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true }),
     );
     expect(props.onOpen).toHaveBeenCalledWith("README.md");
+  });
+
+  it("opens the focused file externally on ⌘↩ or Ctrl+Enter", async () => {
+    const { props } = show();
+    await settle();
+    fire(row("README.md"), new MouseEvent("click", { bubbles: true, composed: true }));
+    await settle();
+    for (const modifier of [{ metaKey: true }, { ctrlKey: true }]) {
+      fire(
+        row("README.md"),
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true, ...modifier }),
+      );
+    }
+    expect(props.onOpenExternal).toHaveBeenCalledTimes(2);
+    expect(props.onOpen).not.toHaveBeenCalled();
   });
 
   it("marks git status and ignored entries", async () => {

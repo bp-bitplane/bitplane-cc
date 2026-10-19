@@ -111,7 +111,7 @@ const STATUS_OF: Record<ChangeKind, FileStatus> = {
 };
 
 /** The repo's folder as a tree path prefix: "" at the plane root, else "dir/". */
-function repoPrefix(repo: Repo, planeDir: string): string | null {
+export function repoPrefix(repo: Repo, planeDir: string): string | null {
   const root = planeDir.replace(/\/$/, "");
   if (repo.path === root) return "";
   if (!repo.path.startsWith(`${root}/`)) return null;

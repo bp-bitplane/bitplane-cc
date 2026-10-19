@@ -22,6 +22,7 @@
     "dmg": "pnpm tauri build --bundles dmg"
   },
   "dependencies": {
+    "@pierre/diffs": "1.5.2",
     "@pierre/trees": "1.0.0-beta.6",
     "@tauri-apps/api": "2.12.1",
     "@tauri-apps/plugin-dialog": "2.8.1",

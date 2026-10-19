@@ -138,10 +138,11 @@ describe("Source control", () => {
       useStore.setState({ toolPanelOpen: false });
       await flush();
     });
-    expect(backend.called("plane_source_control_watch").map((c) => c.args.planeId)).toEqual([
-      "alpha",
+    const targets = backend.called("plane_git_watch").map((c) => c.args.target);
+    expect(targets).toEqual([
+      { planeId: "alpha", sourceControl: true, fileTabs: [] },
       null,
-      "beta",
+      { planeId: "beta", sourceControl: true, fileTabs: [] },
       null,
     ]);
   });
@@ -189,5 +190,40 @@ describe("Source control", () => {
     expect(screen.queryByRole("complementary")).toBeNull();
     act(() => run({ action: "sourceControl" }));
     expect(useStore.getState().toolPanelOpen).toBe(true);
+  });
+
+  it("opens a change as a File tab in its group's mode", async () => {
+    show([web]);
+    await flush();
+    const group = (name: string) => within(screen.getByRole("list", { name }));
+    await userEvent.click(group("Staged").getByRole("button", { name: /new\.ts/ }));
+    expect(useStore.getState().activeTab.alpha).toBe("index:projects/web/src/new.ts");
+    await userEvent.click(group("Changes").getByRole("button", { name: /app\.ts/ }));
+    expect(useStore.getState().activeTab.alpha).toBe("worktree:projects/web/src/app.ts");
+    group("Untracked")
+      .getByRole("button", { name: /notes\.md/ })
+      .focus();
+    await userEvent.keyboard("{Enter}");
+    expect(useStore.getState().activeTab.alpha).toBe("file:projects/web/notes.md");
+    expect(useStore.getState().fileTabs.alpha).toHaveLength(1);
+  });
+
+  it("marks the row of the active File tab", async () => {
+    show([web]);
+    await flush();
+    const row = within(screen.getByRole("list", { name: "Changes" })).getByRole("button", {
+      name: /app\.ts/,
+    });
+    expect(row).not.toHaveAttribute("aria-current");
+    await userEvent.click(row);
+    expect(row).toHaveAttribute("aria-current", "true");
+  });
+
+  it("doesn't open an untracked folder", async () => {
+    show([repo("web", { untracked: ["scratch/"] })]);
+    await flush();
+    const untracked = within(screen.getByRole("list", { name: "Untracked" }));
+    expect(untracked.getByText("scratch/")).toBeInTheDocument();
+    expect(untracked.queryByRole("button")).toBeNull();
   });
 });

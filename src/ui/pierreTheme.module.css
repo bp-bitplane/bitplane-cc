@@ -1,0 +1,47 @@
+/* Pierre renders in a shadow DOM, so its components are themed through the
+   custom properties it inherits, mapped here from theme.css (ADRs 0007, 0009). */
+
+.trees {
+  color-scheme: dark;
+  --trees-bg-override: transparent;
+  --trees-bg-muted-override: var(--hover);
+  --trees-fg-override: var(--text);
+  --trees-fg-muted-override: var(--dim);
+  --trees-accent-override: var(--accent);
+  --trees-border-color-override: var(--line);
+  --trees-selected-bg-override: var(--accent-soft);
+  --trees-selected-fg-override: var(--text);
+  --trees-selected-focused-border-color-override: var(--accent);
+  --trees-focus-ring-color-override: var(--accent);
+  --trees-font-family-override: var(--sans);
+  --trees-font-size-override: 13px;
+  --trees-git-added-color-override: var(--accent);
+  --trees-git-untracked-color-override: var(--accent);
+  --trees-git-modified-color-override: var(--warn);
+  --trees-git-renamed-color-override: var(--warn);
+  --trees-git-deleted-color-override: var(--danger);
+  --trees-git-ignored-color-override: var(--faint);
+  --trees-status-added-override: var(--accent);
+  --trees-status-untracked-override: var(--accent);
+  --trees-status-modified-override: var(--warn);
+  --trees-status-renamed-override: var(--warn);
+  --trees-status-deleted-override: var(--danger);
+  --trees-status-ignored-override: var(--faint);
+}
+
+.diffs {
+  display: block;
+  color-scheme: dark;
+  --diffs-dark-bg: var(--bg);
+  --diffs-dark: var(--text);
+  --diffs-font-family: var(--mono);
+  --diffs-header-font-family: var(--sans);
+  --diffs-font-size: 12px;
+  --diffs-addition-color-override: var(--accent);
+  --diffs-deletion-color-override: var(--danger);
+  --diffs-modified-color-override: var(--warn);
+  --diffs-fg-number-override: var(--faint);
+  --diffs-bg-separator-override: var(--panel);
+  --diffs-bg-hover-override: var(--hover);
+  --diffs-bg-selection-override: var(--accent-soft);
+}

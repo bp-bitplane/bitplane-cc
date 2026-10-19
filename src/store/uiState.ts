@@ -1,26 +1,34 @@
 /**
  * The UI state that survives a restart (ADR 0005). Tabs are saved by session
- * key: session ids start over with every launch.
+ * key: session ids start over with every launch. File tabs aren't restored
+ * (ADR 0008), so an active one falls back to the plane's last session.
  */
 import type { SessionInfo } from "../ipc";
+import type { FileTabKey } from "../tabs/fileTabs";
 import { TOOLS, type Tool } from "../tool-bar/tools";
-import type { State } from "./store";
+import { sessionsOf } from "./selectors";
+import type { DiffStyle, State } from "./store";
 
 export const SAVE_DELAY_MS = 300;
 
 export interface SavedUiState {
   selectedPlaneId: string | null;
-  /** Plane id → the active session's key. */
-  activeTab: Record<string, string>;
+  /** Plane id → the active session's key, or the active File tab. */
+  activeTab: Record<string, string | { file: FileTabKey }>;
   collapsed: Record<string, boolean>;
   fontSize: number;
   toolPanel: { open: boolean; tool: Tool; width: number };
   sidebar: { width: number };
+  fileTab: { diffStyle: DiffStyle };
 }
 
 export function toSaved(state: State): SavedUiState {
-  const activeTab: Record<string, string> = {};
+  const activeTab: SavedUiState["activeTab"] = {};
   for (const [planeId, id] of Object.entries(state.activeTab)) {
+    if (typeof id === "string") {
+      activeTab[planeId] = { file: id };
+      continue;
+    }
     const key = state.sessions[id]?.key;
     if (key) activeTab[planeId] = key;
   }
@@ -35,6 +43,7 @@ export function toSaved(state: State): SavedUiState {
       width: state.toolPanelWidth,
     },
     sidebar: { width: state.sidebarWidth },
+    fileTab: { diffStyle: state.diffStyle },
   };
 }
 
@@ -53,6 +62,7 @@ export function fromSaved(
     | "activeTool"
     | "toolPanelWidth"
     | "sidebarWidth"
+    | "diffStyle"
   >
 > {
   const saved = parse(json);
@@ -64,8 +74,13 @@ export function fromSaved(
     result.fontSize = saved.fontSize;
   }
   const activeTab: Record<string, number> = {};
-  for (const [planeId, key] of entries(saved.activeTab)) {
-    const id = typeof key === "string" ? idByKey.get(key) : undefined;
+  for (const [planeId, value] of entries(saved.activeTab)) {
+    const id =
+      typeof value === "string"
+        ? idByKey.get(value)
+        : value && typeof value === "object"
+          ? sessionsOf({ sessions }, planeId).at(-1)?.id
+          : undefined;
     if (id !== undefined && sessions[id]?.planeId === planeId) activeTab[planeId] = id;
   }
   result.activeTab = activeTab;
@@ -79,6 +94,10 @@ export function fromSaved(
   if (TOOLS.some((tool) => tool === toolPanel.tool)) result.activeTool = toolPanel.tool as Tool;
   if (typeof toolPanel.width === "number" && Number.isFinite(toolPanel.width)) {
     result.toolPanelWidth = toolPanel.width;
+  }
+  const fileTab = object(saved.fileTab);
+  if (fileTab.diffStyle === "unified" || fileTab.diffStyle === "split") {
+    result.diffStyle = fileTab.diffStyle;
   }
   const sidebar = object(saved.sidebar);
   if (typeof sidebar.width === "number" && Number.isFinite(sidebar.width)) {

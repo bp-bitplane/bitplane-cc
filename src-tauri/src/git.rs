@@ -1,14 +1,13 @@
 //! Source control: the repos in a plane and their `git status` (ADR 0006).
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 
-use crate::bp;
 use crate::env::EnvMap;
+use crate::git_cli::{self, Git};
 
 pub const PROJECTS_DIR: &str = "projects";
 
@@ -90,14 +89,12 @@ pub async fn source_control(
     if !root.is_dir() {
         return Err(format!("{} no longer exists", root.display()));
     }
-    let git = bp::find_on_path("git", env.get("PATH").map(String::as_str))
-        .ok_or("git isn't on your PATH")?;
-    let env = bp::git_env(env);
+    let git = Git::find(env).ok_or("git isn't on your PATH")?;
     let dirs = repo_dirs(root, members);
     // All spawned before any is awaited, so the repos are read in parallel.
     let children: Vec<_> = dirs
         .iter()
-        .map(|dir| dir.is_dir().then(|| spawn_status(&git, dir, &env)))
+        .map(|dir| dir.is_dir().then(|| spawn_status(&git, dir)))
         .collect();
     let mut repos = Vec::with_capacity(dirs.len());
     for (dir, child) in dirs.iter().zip(children) {
@@ -196,23 +193,18 @@ pub fn parse_status(output: &[u8]) -> Result<Status, String> {
     Ok(status)
 }
 
-fn spawn_status(git: &Path, dir: &Path, env: &EnvMap) -> std::io::Result<Child> {
-    Command::new(git)
-        .args([
+fn spawn_status(git: &Git, dir: &Path) -> std::io::Result<Child> {
+    git.command(
+        dir,
+        &[
             "--no-optional-locks",
             "status",
             "--porcelain=v2",
             "--branch",
             "-z",
-        ])
-        .current_dir(dir)
-        .env_clear()
-        .envs(env)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
+        ],
+    )
+    .spawn()
 }
 
 async fn read_status(child: std::io::Result<Child>) -> RepoState {
@@ -223,10 +215,7 @@ async fn read_status(child: std::io::Result<Child>) -> RepoState {
     let result = match output {
         Err(error) => Err(format!("couldn't run git: {error}")),
         Ok(output) if output.status.success() => parse_status(&output.stdout),
-        Ok(output) => Err(match String::from_utf8_lossy(&output.stderr).trim() {
-            "" => format!("git exited with {}", output.status),
-            message => message.to_string(),
-        }),
+        Ok(output) => Err(git_cli::failure(&output)),
     };
     match result {
         Ok(status) => RepoState::Ready { status },

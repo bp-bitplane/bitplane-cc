@@ -2,9 +2,10 @@ import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { CreateProgress } from "../create-plane/CreateProgress";
+import { FileTabView } from "../file-tab/FileTabView";
 import type { AppStatus } from "../ipc";
 import { labelFor } from "../keymap";
-import { activeSession, findPlane, sessionsOf } from "../store/selectors";
+import { activeFileTab, activeSession, findPlane, tabsOf } from "../store/selectors";
 import {
   dismissCreate,
   dismissNotice,
@@ -15,17 +16,24 @@ import {
   type State,
   useStore,
 } from "../store/store";
+import { fileTabKey } from "../tabs/fileTabs";
 import { TabBar } from "../tabs/TabBar";
 import { TerminalStack } from "../terminal/TerminalStack";
 import { Centered } from "../ui/Centered";
 import styles from "./MainArea.module.css";
 
-/** Tab bar, banners, and either the active terminal or a screen in its place. */
+/**
+ * Tab bar, banners, and the active Tab (a terminal or a File tab) or a screen
+ * in its place. Terminals stay mounted behind a File tab.
+ */
 export function MainArea() {
   const view = useStore(useShallow(mainView));
   const mac = useStore((s) => s.platform === "mac");
   const visibleId = useStore((s) =>
     view.screen === null ? (activeSession(s, s.selectedPlaneId)?.id ?? null) : null,
+  );
+  const fileTab = useStore((s) =>
+    view.screen === null ? activeFileTab(s, s.selectedPlaneId) : undefined,
   );
   return (
     <main className={styles.main}>
@@ -37,6 +45,11 @@ export function MainArea() {
       <Banners />
       <div className={styles.content}>
         <TerminalStack visibleId={visibleId} />
+        {fileTab && (
+          <div className={styles.screen}>
+            <FileTabView key={`${fileTab.planeId}/${fileTabKey(fileTab)}`} tab={fileTab} />
+          </div>
+        )}
         {view.screen !== null && (
           <div className={styles.screen}>
             <Screen view={view} />
@@ -79,7 +92,7 @@ export function mainView(state: State): MainView {
   }
   const plane = findPlane(state, planeId);
   if (plane?.kind === "creating" || (!plane && state.creates[planeId])) return view("creating");
-  if (sessionsOf(state, planeId).length > 0) return view(null, planeId);
+  if (tabsOf(state, planeId).length > 0) return view(null, planeId);
   return !plane || plane.kind === "gone" ? view("gone") : view("noSessions", planeId);
 }
 

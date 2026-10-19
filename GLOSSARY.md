@@ -21,8 +21,16 @@ One shell process with its own terminal, belonging to exactly one plane.
 _Avoid_: Terminal, shell, tab
 
 **Tab**:
-The UI handle of one session; there is always exactly one tab per session.
+One entry in a plane's tab bar: a session tab or a file tab.
 _Avoid_: Session (when meaning the UI element)
+
+**Session tab**:
+The UI handle of one session; there is always exactly one session tab per session.
+_Avoid_: Terminal tab
+
+**File tab**:
+A tab showing one file of a plane, as a diff or its plain contents; it exists only in the UI, is never restored, and opens as the plane's single preview until pinned.
+_Avoid_: Editor, diff tab, file view
 
 **Gone plane**:
 A plane that disappeared or was renamed while it still has open sessions; its sessions keep running.
