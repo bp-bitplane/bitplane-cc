@@ -6,7 +6,7 @@ Desktop app for working with bitplane planes: a sidebar of planes and tabbed ter
 
 ### Issue tracker
 
-Issues live as local markdown files under `.alfonz/issues/` (gitignored). See `docs/agents/issue-tracker.md`.
+GitHub issues across the `bp-bitplane` repos, collected on org Project #1; cross-cutting work goes in `bitplane-protocol`. See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
