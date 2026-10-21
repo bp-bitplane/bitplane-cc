@@ -1,0 +1,30 @@
+diff --git a/README.md b/README.md
+index 3bf10c4..c1ca7c5 100644
+--- a/README.md
++++ b/README.md
+@@ -10,7 +10,7 @@ and the [ADRs](docs/adr/) for the vocabulary, or <https://github.com/bp-bitplane
+ 
+ ## Getting started
+ 
+-1. Install Node 24 and `pnpm`.
++1. Install Node 26 and `pnpm`.
+ 2. Run `pnpm install`.
+ 3. Start the app with `pnpm dev`, or only the frontend with `pnpm vite:dev`.
+ 
+@@ -19,6 +19,8 @@ and the [ADRs](docs/adr/) for the vocabulary, or <https://github.com/bp-bitplane
+ - [x] Sidebar with planes and their tabs
+ - [x] File tabs with diffs (ADR 0009)
+ - [ ] Markdown preview
++  - [x] Pick a renderer (#38)
++  - [ ] Decide the toggle (#37)
+ - [ ] ~~Built-in editor~~ (out of scope)
+ 
+ ## Commands
+@@ -27,6 +29,7 @@ and the [ADRs](docs/adr/) for the vocabulary, or <https://github.com/bp-bitplane
+ | :-- | :-- | :-: |
+ | `pnpm dev` | Tauri app with hot reload | yes |
+ | `pnpm vite:dev` | Frontend only, on port 1420 | no |
++| `pnpm typecheck` | `tsc`, no emit | no |
+ | `pnpm test` | Vitest, then `cargo test` | yes |
+ 
+ ## Examples

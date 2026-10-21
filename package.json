@@ -11,6 +11,7 @@
     "dev": "tauri dev",
     "build": "tauri build --no-sign",
     "vite:dev": "vite",
+    "prototype:md": "vite --port 1437 --open /prototype-md.html",
     "vite:build": "tsc && vite build",
     "typecheck": "tsc",
     "lint": "biome check . && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
@@ -33,6 +34,8 @@
     "lucide-react": "1.52.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
     "zustand": "5.0.15"
   },
   "devDependencies": {

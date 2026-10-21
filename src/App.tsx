@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import styles from "./App.module.css";
 import { Dialogs } from "./dialogs/Dialogs";
+import { MdVariantSwitcher } from "./file-tab/prototype/MdVariantSwitcher";
 import { MainArea } from "./main-area/MainArea";
 import { Sidebar } from "./sidebar/Sidebar";
 import { connect } from "./store/store";
@@ -26,6 +27,8 @@ export function App() {
       <ToolPanel />
       <ToolBar />
       <Dialogs />
+      {/* PROTOTYPE (#37): Markdown preview variants, dev builds only. */}
+      {import.meta.env.DEV && <MdVariantSwitcher />}
     </div>
   );
 }

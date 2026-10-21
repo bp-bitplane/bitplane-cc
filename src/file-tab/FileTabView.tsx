@@ -1,4 +1,4 @@
-import { ExternalLink } from "lucide-react";
+import { Code2, ExternalLink, Eye } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from "react";
 import { commands, type FileContents, type FileDiff, type FileText } from "../ipc";
 import { findPlane } from "../store/selectors";
@@ -7,8 +7,10 @@ import { type FileTab, fileTabTitle } from "../tabs/fileTabs";
 import { Centered } from "../ui/Centered";
 import styles from "./FileTabView.module.css";
 import { changedLines, firstChangedLine, MAX_CHANGED_LINES, renameOf } from "./patch";
+import { isMarkdown, type MdVariant, useMdVariant } from "./prototype/mdVariant";
 
 const DiffView = lazy(() => import("./DiffView"));
+const MarkdownView = lazy(() => import("./MarkdownView"));
 
 type Content =
   | { kind: "loading" }
@@ -27,6 +29,15 @@ export function FileTabView({ tab }: { tab: FileTab }) {
   /** Bumped when git or the file changed; the last content stays up meanwhile. */
   const [version, setVersion] = useState(0);
   const available = planeKind !== "gone" && planeKind !== "creating";
+  // PROTOTYPE (#37): the Markdown preview, per variant (see prototype/mdVariant.ts).
+  const variant = useMdVariant();
+  /** `null` until the user toggles: the variant's default applies. */
+  const [previewChoice, setPreviewChoice] = useState<boolean | null>(null);
+  const [newSide, setNewSide] = useState<string | null>(null);
+  useEffect(() => {
+    void variant;
+    setPreviewChoice(null);
+  }, [variant]);
 
   useEffect(
     () => onFileTabsSignal((changed) => changed === planeId && setVersion((v) => v + 1)),
@@ -50,9 +61,25 @@ export function FileTabView({ tab }: { tab: FileTab }) {
     [planeId, path, mode],
   );
 
+  const patch = content.kind === "diff" && content.diff.kind === "diff" ? content.diff.patch : null;
+  const preview = previewState(variant, path, content, patch, previewChoice);
+  const previewDiff = preview.on && patch !== null;
+
+  useEffect(() => {
+    if (!previewDiff) return;
+    void version;
+    let current = true;
+    void loadContents().then(
+      (contents) => current && setNewSide(contents.new),
+      (error) => current && setNewSide(`Couldn't read the file: ${String(error)}`),
+    );
+    return () => {
+      current = false;
+    };
+  }, [previewDiff, loadContents, version]);
+
   if (!available) return <PlaneNotice planeId={planeId} creating={planeKind === "creating"} />;
 
-  const patch = content.kind === "diff" && content.diff.kind === "diff" ? content.diff.patch : null;
   const rename = patch ? renameOf(patch) : null;
   const line = patch ? firstChangedLine(patch) : undefined;
   const open = () => void openFile(planeId, path, line);
@@ -68,7 +95,51 @@ export function FileTabView({ tab }: { tab: FileTab }) {
         <span className={styles.path} title={path}>
           {rename ? `${rename.from} → ${rename.to}` : path}
         </span>
-        {patch && (
+        {variant === "A" && preview.offered && !patch && (
+          <fieldset className={styles.toggle} aria-label="Markdown view">
+            <button
+              type="button"
+              aria-pressed={!preview.on}
+              onClick={() => setPreviewChoice(false)}
+            >
+              Source
+            </button>
+            <button type="button" aria-pressed={preview.on} onClick={() => setPreviewChoice(true)}>
+              Preview
+            </button>
+          </fieldset>
+        )}
+        {variant === "C" && preview.offered && (
+          <fieldset className={styles.toggle} aria-label="View">
+            {patch ? (
+              (["unified", "split"] as const).map((style) => (
+                <button
+                  key={style}
+                  type="button"
+                  aria-pressed={!preview.on && diffStyle === style}
+                  onClick={() => {
+                    setPreviewChoice(false);
+                    setDiffStyle(style);
+                  }}
+                >
+                  {style === "unified" ? "Unified" : "Split"}
+                </button>
+              ))
+            ) : (
+              <button
+                type="button"
+                aria-pressed={!preview.on}
+                onClick={() => setPreviewChoice(false)}
+              >
+                Source
+              </button>
+            )}
+            <button type="button" aria-pressed={preview.on} onClick={() => setPreviewChoice(true)}>
+              Preview
+            </button>
+          </fieldset>
+        )}
+        {patch && !(variant === "C" && preview.offered) && (
           <fieldset className={styles.toggle} aria-label="Diff layout">
             {(["unified", "split"] as const).map((style) => (
               <button
@@ -82,6 +153,25 @@ export function FileTabView({ tab }: { tab: FileTab }) {
             ))}
           </fieldset>
         )}
+        {variant === "B" && isMarkdown(path) && (patch || preview.offered) && (
+          <button
+            type="button"
+            className={styles.icon}
+            aria-pressed={preview.on}
+            disabled={!preview.offered}
+            title={
+              !preview.offered
+                ? "Preview is only for the file itself, not its diff"
+                : preview.on
+                  ? "Show source"
+                  : "Show preview"
+            }
+            aria-label={preview.on ? "Show source" : "Show preview"}
+            onClick={() => setPreviewChoice(!preview.on)}
+          >
+            {preview.on ? <Code2 size={14} /> : <Eye size={14} />}
+          </button>
+        )}
         <button
           type="button"
           className={styles.icon}
@@ -93,16 +183,30 @@ export function FileTabView({ tab }: { tab: FileTab }) {
         </button>
       </header>
       <div className={styles.body}>
-        <Body
-          tab={tab}
-          content={content}
-          showAnyway={showAnyway}
-          openButton={openButton}
-          onForce={() => setForce(true)}
-          onShowAnyway={() => setShowAnyway(true)}
-          diffStyle={diffStyle}
-          loadContents={loadContents}
-        />
+        {preview.on ? (
+          <Suspense fallback={null}>
+            {previewDiff
+              ? newSide !== null && (
+                  <MarkdownView
+                    source={newSide}
+                    note={`Previewing the ${tab.mode === "index" ? "staged" : "working tree"} version, not the changes. Switch to Unified or Split for the diff.`}
+                  />
+                )
+              : content.kind === "plain" &&
+                content.text.kind === "text" && <MarkdownView source={content.text.contents} />}
+          </Suspense>
+        ) : (
+          <Body
+            tab={tab}
+            content={content}
+            showAnyway={showAnyway}
+            openButton={openButton}
+            onForce={() => setForce(true)}
+            onShowAnyway={() => setShowAnyway(true)}
+            diffStyle={diffStyle}
+            loadContents={loadContents}
+          />
+        )}
       </div>
     </div>
   );
@@ -235,6 +339,26 @@ function TooLarge({
       <p>{children}</p>
     </Centered>
   );
+}
+
+/**
+ * PROTOTYPE (#37): whether this tab offers a Markdown preview and shows it.
+ * A: Source by default, only for the plain file. B: Preview by default, only
+ * for the plain file (its toggle shows disabled on a diff). C: Preview by
+ * default for the plain file, and offered on a diff too (renders the new side).
+ */
+function previewState(
+  variant: MdVariant,
+  path: string,
+  content: Content,
+  patch: string | null,
+  choice: boolean | null,
+): { offered: boolean; on: boolean } {
+  if (!isMarkdown(path)) return { offered: false, on: false };
+  const plainText = content.kind === "plain" && content.text.kind === "text";
+  const offered = plainText || (variant === "C" && patch !== null);
+  const byDefault = variant !== "A" && plainText;
+  return { offered, on: offered && (choice ?? byDefault) };
 }
 
 /** The Tool panel's notices, for a plane the File tab can't read. */
