@@ -2,8 +2,15 @@ import { ExternalLink } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from "react";
 import { commands, type FileContents, type FileDiff, type FileText } from "../ipc";
 import { findPlane } from "../store/selectors";
-import { type DiffStyle, onFileTabsSignal, openFile, setDiffStyle, useStore } from "../store/store";
-import { type FileTab, fileTabTitle } from "../tabs/fileTabs";
+import {
+  type DiffStyle,
+  onFileTabsSignal,
+  openFile,
+  setDiffStyle,
+  setFileTabPreview,
+  useStore,
+} from "../store/store";
+import { type FileTab, fileTabKey, fileTabTitle } from "../tabs/fileTabs";
 import { Centered } from "../ui/Centered";
 import styles from "./FileTabView.module.css";
 import { changedLines, firstChangedLine, MAX_CHANGED_LINES, renameOf } from "./patch";
@@ -25,8 +32,6 @@ export function FileTabView({ tab }: { tab: FileTab }) {
   const [content, setContent] = useState<Content>({ kind: "loading" });
   const [force, setForce] = useState(false);
   const [showAnyway, setShowAnyway] = useState(false);
-  /** Markdown preview instead of source; the tab's own, never saved. */
-  const [preview, setPreview] = useState(false);
   /** Bumped when git or the file changed; the last content stays up meanwhile. */
   const [version, setVersion] = useState(0);
   const available = planeKind !== "gone" && planeKind !== "creating";
@@ -62,6 +67,8 @@ export function FileTabView({ tab }: { tab: FileTab }) {
     isMarkdown(path) && content.kind === "plain" && content.text.kind === "text"
       ? content.text.contents
       : null;
+  const preview = tab.preview ?? false;
+  const setPreview = (on: boolean) => setFileTabPreview(planeId, fileTabKey(tab), on);
   const open = () => void openFile(planeId, path, line);
   const openButton = (
     <button type="button" onClick={open}>

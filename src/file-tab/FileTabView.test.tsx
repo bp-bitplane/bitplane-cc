@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { fileTabsOf } from "../store/selectors";
 import { applyFileTabsChanged, refresh, useStore } from "../store/store";
 import type { FileTab } from "../tabs/fileTabs";
 import { mockBackend, plane, planesModel, seed } from "../test/fixtures";
@@ -190,7 +191,7 @@ describe("FileTabView", () => {
 
     it.each(["README.md", "docs/Notes.MARKDOWN"])("offers it for %s, on Source", async (path) => {
       plainFile();
-      render(<FileTabView tab={tab("file", path)} />);
+      renderOpen(tab("file", path));
       await screen.findByTestId("diff-view");
       expect(screen.getByRole("button", { name: "Source" })).toHaveAttribute(
         "aria-pressed",
@@ -204,7 +205,7 @@ describe("FileTabView", () => {
 
     it("renders GFM on Preview and switches back to Source", async () => {
       plainFile();
-      render(<FileTabView tab={tab("file", "README.md")} />);
+      renderOpen(tab("file", "README.md"));
       await screen.findByTestId("diff-view");
       await userEvent.click(screen.getByRole("button", { name: "Preview" }));
       expect(await screen.findByRole("heading", { name: "Hello" })).toBeInTheDocument();
@@ -216,7 +217,7 @@ describe("FileTabView", () => {
 
     it("keeps raw HTML escaped", async () => {
       plainFile();
-      const { container } = render(<FileTabView tab={tab("file", "README.md")} />);
+      const { container } = renderOpen(tab("file", "README.md"));
       await screen.findByTestId("diff-view");
       await userEvent.click(screen.getByRole("button", { name: "Preview" }));
       await screen.findByRole("heading", { name: "Hello" });
@@ -226,7 +227,7 @@ describe("FileTabView", () => {
 
     it("doesn't navigate on a link click", async () => {
       plainFile();
-      render(<FileTabView tab={tab("file", "README.md")} />);
+      renderOpen(tab("file", "README.md"));
       await screen.findByTestId("diff-view");
       await userEvent.click(screen.getByRole("button", { name: "Preview" }));
       const link = await screen.findByRole("link", { name: "docs" });
@@ -236,7 +237,7 @@ describe("FileTabView", () => {
 
     it("highlights a fenced code block once its grammar loads", async () => {
       plainFile();
-      render(<FileTabView tab={tab("file", "README.md")} />);
+      renderOpen(tab("file", "README.md"));
       await screen.findByTestId("diff-view");
       await userEvent.click(screen.getByRole("button", { name: "Preview" }));
       const token = await screen.findByText("const x = 1;", { selector: "span" });
@@ -249,7 +250,7 @@ describe("FileTabView", () => {
         plane_file_diff: () => ({ kind: "plain" }),
         plane_read_file: () => ({ kind: "text", contents }),
       });
-      render(<FileTabView tab={tab("file", "README.md")} />);
+      renderOpen(tab("file", "README.md"));
       await screen.findByTestId("diff-view");
       await userEvent.click(screen.getByRole("button", { name: "Preview" }));
       await screen.findByRole("heading", { name: "Hello" });
@@ -264,7 +265,7 @@ describe("FileTabView", () => {
 
     it("isn't offered on a diff", async () => {
       mockBackend({ plane_file_diff: () => ({ kind: "diff", patch: PATCH }) });
-      render(<FileTabView tab={tab("worktree", "README.md")} />);
+      renderOpen(tab("worktree", "README.md"));
       await screen.findByTestId("diff-view");
       expect(screen.getByRole("button", { name: "Split" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
@@ -272,7 +273,7 @@ describe("FileTabView", () => {
 
     it("isn't offered for other files", async () => {
       plainFile();
-      render(<FileTabView tab={tab("file", "notes.txt")} />);
+      renderOpen(tab("file", "notes.txt"));
       await screen.findByTestId("diff-view");
       expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
     });
@@ -285,9 +286,20 @@ describe("FileTabView", () => {
         plane_file_diff: () => ({ kind: "plain" }),
         plane_read_file: () => text,
       });
-      render(<FileTabView tab={tab("file", "README.md")} />);
+      renderOpen(tab("file", "README.md"));
       expect(await screen.findByText(size)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
     });
   });
 });
+
+/** Renders `open` from the store, as `MainArea` does, so the tab's own state round-trips. */
+function renderOpen(open: FileTab) {
+  useStore.setState({ fileTabs: { a: [open] } });
+  return render(<Open />);
+}
+
+function Open() {
+  const open = useStore((s) => fileTabsOf(s, "a")[0]);
+  return open ? <FileTabView tab={open} /> : null;
+}
