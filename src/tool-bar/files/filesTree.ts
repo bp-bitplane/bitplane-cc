@@ -84,14 +84,14 @@ export function repoBranches(repos: readonly Repo[], planeDir: string): Map<stri
   return branches;
 }
 
-/** Each repo's folder and the folders leading to it, so Files opens on the code. */
+/** The folders leading to each repo, so Files opens on the Members, each one collapsed. */
 export function initialExpanded(repos: readonly Repo[], planeDir: string): string[] {
   const expanded = new Set<string>();
   for (const repo of repos) {
     const prefix = repoPrefix(repo, planeDir);
     if (!prefix) continue;
     const segments = prefix.split("/").filter(Boolean);
-    for (let i = 1; i <= segments.length; i++) expanded.add(`${segments.slice(0, i).join("/")}/`);
+    for (let i = 1; i < segments.length; i++) expanded.add(`${segments.slice(0, i).join("/")}/`);
   }
   return [...expanded];
 }
