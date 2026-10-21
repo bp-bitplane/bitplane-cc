@@ -2,13 +2,26 @@ import { ExternalLink } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from "react";
 import { commands, type FileContents, type FileDiff, type FileText } from "../ipc";
 import { findPlane } from "../store/selectors";
-import { type DiffStyle, onFileTabsSignal, openFile, setDiffStyle, useStore } from "../store/store";
-import { type FileTab, fileTabTitle } from "../tabs/fileTabs";
+import {
+  type DiffStyle,
+  onFileTabsSignal,
+  openFile,
+  setDiffStyle,
+  setFileTabPreview,
+  useStore,
+} from "../store/store";
+import { type FileTab, fileTabKey, fileTabTitle } from "../tabs/fileTabs";
 import { Centered } from "../ui/Centered";
 import styles from "./FileTabView.module.css";
 import { changedLines, firstChangedLine, MAX_CHANGED_LINES, renameOf } from "./patch";
 
 const DiffView = lazy(() => import("./DiffView"));
+const MarkdownView = lazy(() => import("./MarkdownView"));
+
+type Sides =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; contents: FileContents };
 
 type Content =
   | { kind: "loading" }
@@ -27,6 +40,7 @@ export function FileTabView({ tab }: { tab: FileTab }) {
   /** Bumped when git or the file changed; the last content stays up meanwhile. */
   const [version, setVersion] = useState(0);
   const available = planeKind !== "gone" && planeKind !== "creating";
+  const [sides, setSides] = useState<Sides>({ kind: "loading" });
 
   useEffect(
     () => onFileTabsSignal((changed) => changed === planeId && setVersion((v) => v + 1)),
@@ -50,11 +64,35 @@ export function FileTabView({ tab }: { tab: FileTab }) {
     [planeId, path, mode],
   );
 
+  const patch = content.kind === "diff" && content.diff.kind === "diff" ? content.diff.patch : null;
+  const markdown =
+    isMarkdown(path) && content.kind === "plain" && content.text.kind === "text"
+      ? content.text.contents
+      : null;
+  // A rendered document has no single-column diff form, so a diff previews only in Split.
+  const previewable =
+    markdown !== null || (isMarkdown(path) && patch !== null && diffStyle === "split");
+  const preview = previewable && (tab.preview ?? markdown !== null);
+  const previewDiff = preview && patch !== null;
+
+  useEffect(() => {
+    if (!previewDiff) return;
+    void version;
+    let current = true;
+    loadContents().then(
+      (contents) => current && setSides({ kind: "ready", contents }),
+      (error) => current && setSides({ kind: "error", message: String(error) }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [previewDiff, loadContents, version]);
+
   if (!available) return <PlaneNotice planeId={planeId} creating={planeKind === "creating"} />;
 
-  const patch = content.kind === "diff" && content.diff.kind === "diff" ? content.diff.patch : null;
   const rename = patch ? renameOf(patch) : null;
   const line = patch ? firstChangedLine(patch) : undefined;
+  const setPreview = (on: boolean) => setFileTabPreview(planeId, fileTabKey(tab), on);
   const open = () => void openFile(planeId, path, line);
   const openButton = (
     <button type="button" onClick={open}>
@@ -68,6 +106,16 @@ export function FileTabView({ tab }: { tab: FileTab }) {
         <span className={styles.path} title={path}>
           {rename ? `${rename.from} → ${rename.to}` : path}
         </span>
+        {previewable && (
+          <fieldset className={styles.toggle} aria-label="Markdown view">
+            <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>
+              Source
+            </button>
+            <button type="button" aria-pressed={preview} onClick={() => setPreview(true)}>
+              Preview
+            </button>
+          </fieldset>
+        )}
         {patch && (
           <fieldset className={styles.toggle} aria-label="Diff layout">
             {(["unified", "split"] as const).map((style) => (
@@ -93,19 +141,50 @@ export function FileTabView({ tab }: { tab: FileTab }) {
         </button>
       </header>
       <div className={styles.body}>
-        <Body
-          tab={tab}
-          content={content}
-          showAnyway={showAnyway}
-          openButton={openButton}
-          onForce={() => setForce(true)}
-          onShowAnyway={() => setShowAnyway(true)}
-          diffStyle={diffStyle}
-          loadContents={loadContents}
-        />
+        {preview ? (
+          <Suspense fallback={null}>
+            {markdown !== null ? (
+              <MarkdownView source={markdown} />
+            ) : (
+              <PreviewSides sides={sides} staged={mode === "index"} title={fileTabTitle(tab)} />
+            )}
+          </Suspense>
+        ) : (
+          <Body
+            tab={tab}
+            content={content}
+            showAnyway={showAnyway}
+            openButton={openButton}
+            onForce={() => setForce(true)}
+            onShowAnyway={() => setShowAnyway(true)}
+            diffStyle={diffStyle}
+            loadContents={loadContents}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+/** Both sides of a Markdown diff, rendered; Source is where the changes show. */
+function PreviewSides({ sides, staged, title }: { sides: Sides; staged: boolean; title: string }) {
+  switch (sides.kind) {
+    case "loading":
+      return null;
+    case "error":
+      return (
+        <Centered title={`Couldn't open ${title}`}>
+          <p>{sides.message}</p>
+        </Centered>
+      );
+    case "ready":
+      return (
+        <div className={styles.split}>
+          <MarkdownView source={sides.contents.old} note="Before" />
+          <MarkdownView source={sides.contents.new} note={staged ? "Staged" : "Working tree"} />
+        </div>
+      );
+  }
 }
 
 function Body({
@@ -264,6 +343,11 @@ async function load(
   } catch (error) {
     return { kind: "error", message: String(error) };
   }
+}
+
+/** `.md` / `.markdown`, any case. */
+function isMarkdown(path: string): boolean {
+  return /\.(md|markdown)$/i.test(path);
 }
 
 function formatSize(bytes: number): string {

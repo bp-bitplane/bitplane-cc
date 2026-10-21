@@ -16,6 +16,8 @@ export interface FileTab {
   mode: FileTabMode;
   /** An unpinned File tab is the plane's preview, replaced by the next open. */
   pinned: boolean;
+  /** A Markdown file shown rendered instead of as source; the tab's own, never saved. */
+  preview?: boolean;
 }
 
 /** A File tab's identity within its plane; never a number, so never a session id. */
