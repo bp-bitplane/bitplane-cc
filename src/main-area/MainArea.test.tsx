@@ -1,10 +1,12 @@
-import { render, screen } from "@testing-library/react";
-import { selectSession, useStore } from "../store/store";
+import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { openFileTab, selectSession, useStore } from "../store/store";
 import { mockBackend, plane, planesModel, seed, session, sessionsById } from "../test/fixtures";
 import { MainArea } from "./MainArea";
 
 vi.mock("../file-tab/DiffView", () => ({
   default: ({ kind }: { kind: string }) => <div data-testid="diff-view">{kind}</div>,
+  highlightCode: async () => null,
 }));
 
 vi.mock("../terminal/TerminalStack", () => ({
@@ -43,5 +45,22 @@ describe("MainArea", () => {
     render(<MainArea />);
     expect(screen.getByRole("tab", { name: "foo.ts (Working Tree)" })).toBeInTheDocument();
     expect(screen.queryByText(/No sessions in/)).toBeNull();
+  });
+
+  it("keeps a File tab's Markdown preview across switching tabs", async () => {
+    mockBackend({
+      plane_file_diff: () => ({ kind: "plain" }),
+      plane_read_file: () => ({ kind: "text", contents: "# Hello" }),
+    });
+    render(<MainArea />);
+    act(() => openFileTab("a", "README.md", "file"));
+    await screen.findByRole("heading", { name: "Hello" });
+    await userEvent.click(screen.getByRole("button", { name: "Source" }));
+    expect(screen.getByTestId("diff-view")).toBeInTheDocument();
+    act(() => selectSession("a", 1));
+    expect(screen.queryByTestId("diff-view")).toBeNull();
+    act(() => openFileTab("a", "README.md", "file"));
+    expect(await screen.findByTestId("diff-view")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Source" })).toHaveAttribute("aria-pressed", "true");
   });
 });

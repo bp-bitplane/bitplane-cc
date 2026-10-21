@@ -64,3 +64,17 @@
   min-height: 0;
   display: flex;
 }
+
+/* Both sides of a Markdown diff, rendered. */
+.split {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.split > * + * {
+  border-left: 1px solid var(--line);
+}
