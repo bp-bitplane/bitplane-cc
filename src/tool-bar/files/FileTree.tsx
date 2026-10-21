@@ -26,7 +26,7 @@ export interface FileTreeProps {
   /** The folders that should be open; the tree reports changes through `onExpandedChange`. */
   expanded: readonly string[];
   onExpandedChange: (expanded: string[]) => void;
-  /** Double-click or Enter on a file. */
+  /** Click or Enter on a file. */
   onOpen: (path: string) => void;
   /** ⌘↩ or Ctrl+Enter on a file. */
   onOpenExternal: (path: string) => void;
@@ -93,7 +93,11 @@ export function FileTree({
   const openFrom = (path: string | null, open = onOpen) => {
     if (path && !path.endsWith("/") && model.getItem(path)?.isDirectory() === false) open(path);
   };
-  const onDoubleClick = (event: MouseEvent) => openFrom(rowPath(event.nativeEvent));
+  const onClick = (event: MouseEvent) => {
+    // Shift-, ⌘- and Ctrl-click select rows instead.
+    if (event.shiftKey || event.metaKey || event.ctrlKey) return;
+    openFrom(rowPath(event.nativeEvent));
+  };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Enter") return;
     const external = event.metaKey || event.ctrlKey;
@@ -104,7 +108,7 @@ export function FileTree({
     <PierreTree
       model={model}
       className={`${styles.tree} ${theme.trees}`}
-      onDoubleClick={onDoubleClick}
+      onClick={onClick}
       onKeyDown={onKeyDown}
       renderContextMenu={(item: ContextMenuItem, context) => {
         const actions = menu(item.path);
