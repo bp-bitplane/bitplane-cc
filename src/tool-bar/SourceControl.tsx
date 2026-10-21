@@ -289,6 +289,20 @@ function ChangeRow({
           {kind}
         </>
       );
+    case "d":
+      return (
+        <>
+          {kind}
+          <span className={styles.fileText}>
+            {dir && (
+              <span className={styles.fileDir}>
+                <bdi>{dir}/</bdi>
+              </span>
+            )}
+            {name}
+          </span>
+        </>
+      );
   }
 }
 

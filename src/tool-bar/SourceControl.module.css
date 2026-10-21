@@ -244,21 +244,25 @@ button.file {
 /* B · Two-line rows, divided Members: kind is a tinted badge on the left,
  * the directory sits on its own second line, and a full-width rule plus a
  * sticky Member head separate Members. */
-.repos[data-sc="b"] {
+.repos[data-sc="b"],
+.repos[data-sc="d"] {
   padding: 0;
 }
 
-.repos[data-sc="b"] .repo {
+.repos[data-sc="b"] .repo,
+.repos[data-sc="d"] .repo {
   margin: 0;
   padding: 0 6px 8px;
   border-top: 1px solid var(--line);
 }
 
-.repos[data-sc="b"] .repo:first-child {
+.repos[data-sc="b"] .repo:first-child,
+.repos[data-sc="d"] .repo:first-child {
   border-top: 0;
 }
 
-.repos[data-sc="b"] .repoHead {
+.repos[data-sc="b"] .repoHead,
+.repos[data-sc="d"] .repoHead {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -267,11 +271,13 @@ button.file {
   background: var(--panel);
 }
 
-.repos[data-sc="b"] .groupHead {
+.repos[data-sc="b"] .groupHead,
+.repos[data-sc="d"] .groupHead {
   padding-left: 24px;
 }
 
 .repos[data-sc="b"] .file {
+  position: relative;
   align-items: center;
   gap: 8px;
   height: 36px;
@@ -296,7 +302,8 @@ button.file {
   line-height: 14px;
 }
 
-.repos[data-sc="b"] .kind {
+.repos[data-sc="b"] .kind,
+.repos[data-sc="d"] .kind {
   width: 18px;
   height: 18px;
   line-height: 18px;
@@ -305,10 +312,24 @@ button.file {
 }
 
 .repos[data-sc="b"] .current,
-.repos[data-sc="b"] .current:hover {
+.repos[data-sc="b"] .current:hover,
+.repos[data-sc="d"] .current,
+.repos[data-sc="d"] .current:hover {
   color: var(--accent-text);
   background: var(--accent-soft);
-  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* An inset box-shadow would bend along the row's border-radius. */
+.repos[data-sc="b"] .current::before,
+.repos[data-sc="d"] .current::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
 }
 
 /* C · Path-first rows, boxed Members: each Member is a raised box (the Sidebar's
@@ -379,4 +400,35 @@ button.file {
 .repos[data-sc="c"] .current:hover {
   background: var(--accent-soft);
   font-weight: 600;
+}
+
+/* D · B with C's rows: B's badge and divided Members, but each row is one
+ * `dir/name` line with the dir clipped from the left. */
+.repos[data-sc="d"] .file {
+  position: relative;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  line-height: normal;
+  padding: 0 6px 0 22px;
+}
+
+.repos[data-sc="d"] .fileText {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.repos[data-sc="d"] .fileDir {
+  flex: 0 1 auto;
+  direction: rtl;
+  text-align: left;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.repos[data-sc="d"] .fileName {
+  flex: 0 1 auto;
+  max-width: none;
+  min-width: 40px;
 }

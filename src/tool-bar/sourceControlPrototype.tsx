@@ -1,7 +1,7 @@
 /**
  * PROTOTYPE (issue #36, "Source control readability"): throwaway variant switch.
- * Three variants of the Source control rows and Member separation, switchable via
- * `?sc=a|b|c|current`, the floating bar at the bottom, or ←/→ (dev builds only).
+ * Four variants of the Source control rows and Member separation, switchable via
+ * `?sc=a|b|c|d|current`, the floating bar at the bottom, or ←/→ (dev builds only).
  * The choice is kept in localStorage, so it survives `pnpm dev` reloads.
  */
 import { useEffect, useSyncExternalStore } from "react";
@@ -11,6 +11,7 @@ export const VARIANTS = [
   { key: "a", label: "A · Sidebar rows, spaced Members" },
   { key: "b", label: "B · Two-line rows, divided Members" },
   { key: "c", label: "C · Path-first rows, boxed Members" },
+  { key: "d", label: "D · B with path-first single-line rows" },
 ] as const;
 
 export type Variant = (typeof VARIANTS)[number]["key"];
