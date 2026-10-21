@@ -405,6 +405,17 @@ export function pinFileTab(planeId: string, key: FileTabKey): void {
   }));
 }
 
+export function setFileTabPreview(planeId: string, key: FileTabKey, preview: boolean): void {
+  set((state) => ({
+    fileTabs: {
+      ...state.fileTabs,
+      [planeId]: fileTabsOf(state, planeId).map((tab) =>
+        fileTabKey(tab) === key ? { ...tab, preview } : tab,
+      ),
+    },
+  }));
+}
+
 export function closeFileTab(planeId: string, key: FileTabKey): void {
   set((state) => ({
     activeTab: activeAfterClosing(state, planeId, key),

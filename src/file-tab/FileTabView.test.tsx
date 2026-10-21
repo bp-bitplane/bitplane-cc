@@ -1,5 +1,6 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { fileTabsOf } from "../store/selectors";
 import { applyFileTabsChanged, refresh, useStore } from "../store/store";
 import type { FileTab } from "../tabs/fileTabs";
 import { mockBackend, plane, planesModel, seed } from "../test/fixtures";
@@ -11,11 +12,13 @@ vi.mock("./DiffView", () => ({
       {props.contents}
     </div>
   ),
+  highlightCode: async (code: string, lang: string) =>
+    lang === "ts" ? [[{ content: code, color: "#ff0000" }]] : null,
 }));
 
-const tab = (mode: FileTab["mode"] = "worktree"): FileTab => ({
+const tab = (mode: FileTab["mode"] = "worktree", path = "web/src/foo.ts"): FileTab => ({
   planeId: "a",
-  path: "web/src/foo.ts",
+  path,
   mode,
   pinned: true,
 });
@@ -161,4 +164,177 @@ describe("FileTabView", () => {
     await act(() => refresh());
     expect(backend.called("plane_file_diff")).toHaveLength(2);
   });
+
+  describe("Markdown preview", () => {
+    const README = [
+      "# Hello",
+      "",
+      "| a | b |",
+      "| - | - |",
+      "| 1 | 2 |",
+      "",
+      "<b>bold</b>",
+      "",
+      "[docs](https://example.com)",
+      "",
+      "```ts",
+      "const x = 1;",
+      "```",
+      "",
+    ].join("\n");
+
+    const plainFile = (contents = README) =>
+      mockBackend({
+        plane_file_diff: () => ({ kind: "plain" }),
+        plane_read_file: () => ({ kind: "text", contents }),
+      });
+
+    it.each(["README.md", "docs/Notes.MARKDOWN"])("opens %s on Preview", async (path) => {
+      plainFile();
+      renderOpen(tab("file", path));
+      await screen.findByRole("heading", { name: "Hello" });
+      expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(screen.getByRole("button", { name: "Source" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
+    it("renders GFM and switches to Source and back", async () => {
+      plainFile();
+      renderOpen(tab("file", "README.md"));
+      expect(await screen.findByRole("heading", { name: "Hello" })).toBeInTheDocument();
+      expect(screen.getByRole("table")).toBeInTheDocument();
+      expect(screen.queryByTestId("diff-view")).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: "Source" }));
+      expect(screen.getByTestId("diff-view")).toHaveTextContent("# Hello");
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      expect(await screen.findByRole("heading", { name: "Hello" })).toBeInTheDocument();
+    });
+
+    it("keeps raw HTML escaped", async () => {
+      plainFile();
+      const { container } = renderOpen(tab("file", "README.md"));
+      await screen.findByRole("heading", { name: "Hello" });
+      expect(container.querySelector("b")).toBeNull();
+      expect(screen.getByText("<b>bold</b>")).toBeInTheDocument();
+    });
+
+    it("doesn't navigate on a link click", async () => {
+      plainFile();
+      renderOpen(tab("file", "README.md"));
+      const link = await screen.findByRole("link", { name: "docs" });
+      expect(link).toHaveAttribute("href", "https://example.com");
+      expect(fireEvent.click(link)).toBe(false);
+    });
+
+    it("highlights a fenced code block once its grammar loads", async () => {
+      plainFile();
+      renderOpen(tab("file", "README.md"));
+      const token = await screen.findByText("const x = 1;", { selector: "span" });
+      expect(token).toHaveStyle({ color: "#ff0000" });
+    });
+
+    it("keeps the preview when the file changes on disk", async () => {
+      let contents = README;
+      mockBackend({
+        plane_file_diff: () => ({ kind: "plain" }),
+        plane_read_file: () => ({ kind: "text", contents }),
+      });
+      renderOpen(tab("file", "README.md"));
+      await screen.findByRole("heading", { name: "Hello" });
+      contents = "# Changed";
+      await act(async () => applyFileTabsChanged({ planeId: "a" }));
+      expect(await screen.findByRole("heading", { name: "Changed" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+
+    it("isn't offered on a Unified diff", async () => {
+      mockBackend({ plane_file_diff: () => ({ kind: "diff", patch: PATCH }) });
+      renderOpen(tab("worktree", "README.md"));
+      await screen.findByTestId("diff-view");
+      expect(screen.getByRole("button", { name: "Split" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    });
+
+    it.each([
+      ["worktree", "Working tree"],
+      ["index", "Staged"],
+    ] as const)("previews both sides of a Split %s diff", async (mode, label) => {
+      mockBackend({
+        plane_file_diff: () => ({ kind: "diff", patch: PATCH }),
+        plane_file_contents: () => ({ old: "# Old", new: "# New" }),
+      });
+      useStore.setState({ diffStyle: "split" });
+      renderOpen(tab(mode, "README.md"));
+      await screen.findByTestId("diff-view");
+      expect(screen.getByRole("button", { name: "Source" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      expect(await screen.findByRole("heading", { name: "Old" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "New" })).toBeInTheDocument();
+      expect(screen.getByText("Before")).toBeInTheDocument();
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.queryByTestId("diff-view")).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: "Unified" }));
+      expect(screen.getByTestId("diff-view")).toHaveAttribute("data-style", "unified");
+      expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: "Split" }));
+      expect(await screen.findByRole("heading", { name: "New" })).toBeInTheDocument();
+    });
+
+    it("shows why a Split diff's sides couldn't be read", async () => {
+      mockBackend({
+        plane_file_diff: () => ({ kind: "diff", patch: PATCH }),
+        plane_file_contents: () => {
+          throw new Error("gone");
+        },
+      });
+      useStore.setState({ diffStyle: "split" });
+      renderOpen(tab("worktree", "README.md"));
+      await screen.findByTestId("diff-view");
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      expect(await screen.findByText(/gone/)).toBeInTheDocument();
+    });
+
+    it("isn't offered for other files", async () => {
+      plainFile();
+      renderOpen(tab("file", "notes.txt"));
+      await screen.findByTestId("diff-view");
+      expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    });
+
+    it.each([
+      ["binary", { kind: "binary", size: 512 }, "512 B"],
+      ["too large", { kind: "tooLarge", size: 3 * 1024 * 1024 }, "3.0 MB"],
+    ])("isn't offered for a %s file", async (_, text, size) => {
+      mockBackend({
+        plane_file_diff: () => ({ kind: "plain" }),
+        plane_read_file: () => text,
+      });
+      renderOpen(tab("file", "README.md"));
+      expect(await screen.findByText(size)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    });
+  });
 });
+
+/** Renders `open` from the store, as `MainArea` does, so the tab's own state round-trips. */
+function renderOpen(open: FileTab) {
+  useStore.setState({ fileTabs: { a: [open] } });
+  return render(<Open />);
+}
+
+function Open() {
+  const open = useStore((s) => fileTabsOf(s, "a")[0]);
+  return open ? <FileTabView tab={open} /> : null;
+}
