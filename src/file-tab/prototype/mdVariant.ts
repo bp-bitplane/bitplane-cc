@@ -10,6 +10,7 @@ export const MD_VARIANTS = {
   A: "Header toggle, Source by default, hidden in diffs",
   B: "Preview by default, eye icon, disabled in diffs",
   C: "One view switch, Preview also in diffs",
+  D: "Two toggles: Unified/Split + Source/Preview (split only)",
 } as const;
 
 export type MdVariant = keyof typeof MD_VARIANTS;

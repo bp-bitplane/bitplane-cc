@@ -33,7 +33,7 @@ export function FileTabView({ tab }: { tab: FileTab }) {
   const variant = useMdVariant();
   /** `null` until the user toggles: the variant's default applies. */
   const [previewChoice, setPreviewChoice] = useState<boolean | null>(null);
-  const [newSide, setNewSide] = useState<string | null>(null);
+  const [sides, setSides] = useState<FileContents | null>(null);
   useEffect(() => {
     void variant;
     setPreviewChoice(null);
@@ -62,7 +62,7 @@ export function FileTabView({ tab }: { tab: FileTab }) {
   );
 
   const patch = content.kind === "diff" && content.diff.kind === "diff" ? content.diff.patch : null;
-  const preview = previewState(variant, path, content, patch, previewChoice);
+  const preview = previewState(variant, path, content, patch, previewChoice, diffStyle);
   const previewDiff = preview.on && patch !== null;
 
   useEffect(() => {
@@ -70,8 +70,11 @@ export function FileTabView({ tab }: { tab: FileTab }) {
     void version;
     let current = true;
     void loadContents().then(
-      (contents) => current && setNewSide(contents.new),
-      (error) => current && setNewSide(`Couldn't read the file: ${String(error)}`),
+      (contents) => current && setSides(contents),
+      (error) => {
+        const message = `Couldn't read the file: ${String(error)}`;
+        if (current) setSides({ old: message, new: message });
+      },
     );
     return () => {
       current = false;
@@ -139,6 +142,20 @@ export function FileTabView({ tab }: { tab: FileTab }) {
             </button>
           </fieldset>
         )}
+        {variant === "D" && preview.offered && (
+          <fieldset className={styles.toggle} aria-label="Markdown view">
+            <button
+              type="button"
+              aria-pressed={!preview.on}
+              onClick={() => setPreviewChoice(false)}
+            >
+              Source
+            </button>
+            <button type="button" aria-pressed={preview.on} onClick={() => setPreviewChoice(true)}>
+              Preview
+            </button>
+          </fieldset>
+        )}
         {patch && !(variant === "C" && preview.offered) && (
           <fieldset className={styles.toggle} aria-label="Diff layout">
             {(["unified", "split"] as const).map((style) => (
@@ -185,15 +202,25 @@ export function FileTabView({ tab }: { tab: FileTab }) {
       <div className={styles.body}>
         {preview.on ? (
           <Suspense fallback={null}>
-            {previewDiff
-              ? newSide !== null && (
-                  <MarkdownView
-                    source={newSide}
-                    note={`Previewing the ${tab.mode === "index" ? "staged" : "working tree"} version, not the changes. Switch to Unified or Split for the diff.`}
-                  />
+            {previewDiff && variant === "D"
+              ? sides !== null && (
+                  <div className={styles.split}>
+                    <MarkdownView source={sides.old} note="Before" />
+                    <MarkdownView
+                      source={sides.new}
+                      note={tab.mode === "index" ? "Staged" : "Working tree"}
+                    />
+                  </div>
                 )
-              : content.kind === "plain" &&
-                content.text.kind === "text" && <MarkdownView source={content.text.contents} />}
+              : previewDiff
+                ? sides !== null && (
+                    <MarkdownView
+                      source={sides.new}
+                      note={`Previewing the ${tab.mode === "index" ? "staged" : "working tree"} version, not the changes. Switch to Unified or Split for the diff.`}
+                    />
+                  )
+                : content.kind === "plain" &&
+                  content.text.kind === "text" && <MarkdownView source={content.text.contents} />}
           </Suspense>
         ) : (
           <Body
@@ -346,6 +373,8 @@ function TooLarge({
  * A: Source by default, only for the plain file. B: Preview by default, only
  * for the plain file (its toggle shows disabled on a diff). C: Preview by
  * default for the plain file, and offered on a diff too (renders the new side).
+ * D: Preview by default for the plain file; on a diff offered only in Split
+ * (renders both sides), hidden in Unified.
  */
 function previewState(
   variant: MdVariant,
@@ -353,10 +382,13 @@ function previewState(
   content: Content,
   patch: string | null,
   choice: boolean | null,
+  diffStyle: DiffStyle,
 ): { offered: boolean; on: boolean } {
   if (!isMarkdown(path)) return { offered: false, on: false };
   const plainText = content.kind === "plain" && content.text.kind === "text";
-  const offered = plainText || (variant === "C" && patch !== null);
+  const offered =
+    plainText ||
+    (patch !== null && (variant === "C" || (variant === "D" && diffStyle === "split")));
   const byDefault = variant !== "A" && plainText;
   return { offered, on: offered && (choice ?? byDefault) };
 }

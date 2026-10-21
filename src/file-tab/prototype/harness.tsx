@@ -35,6 +35,7 @@ createRoot(root).render(<App />);
 
 mockBackend();
 useStore.setState((s) => ({
+  diffStyle: "split",
   planes: {
     ...s.planes,
     status: { kind: "ready" },

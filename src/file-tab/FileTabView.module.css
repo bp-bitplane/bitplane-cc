@@ -64,3 +64,16 @@
   min-height: 0;
   display: flex;
 }
+
+/* PROTOTYPE (#37) variant D: both sides of a Markdown diff, rendered. */
+.split {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 0;
+}
+
+.split > * + * {
+  border-left: 1px solid var(--line);
+}
