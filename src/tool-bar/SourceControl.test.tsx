@@ -73,9 +73,9 @@ describe("Source control", () => {
       "Untracked",
     ]);
     const group = (name: string) => within(repo.getByRole("list", { name }));
-    expect(group("Staged").getByTitle("src/new.ts")).toHaveTextContent("new.tssrcA");
-    expect(group("Changes").getByTitle("src/app.ts")).toHaveTextContent("app.tssrcM");
-    expect(group("Untracked").getByTitle("notes.md")).toHaveTextContent("notes.mdU");
+    expect(group("Staged").getByTitle("src/new.ts")).toHaveTextContent("Asrc/new.ts");
+    expect(group("Changes").getByTitle("src/app.ts")).toHaveTextContent("Msrc/app.ts");
+    expect(group("Untracked").getByTitle("notes.md")).toHaveTextContent("Unotes.md");
     expect(within(section("api")).getByText("No changes")).toBeInTheDocument();
   });
 
