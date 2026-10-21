@@ -9,6 +9,7 @@ import styles from "./FileTabView.module.css";
 import { changedLines, firstChangedLine, MAX_CHANGED_LINES, renameOf } from "./patch";
 
 const DiffView = lazy(() => import("./DiffView"));
+const MarkdownView = lazy(() => import("./MarkdownView"));
 
 type Content =
   | { kind: "loading" }
@@ -24,6 +25,8 @@ export function FileTabView({ tab }: { tab: FileTab }) {
   const [content, setContent] = useState<Content>({ kind: "loading" });
   const [force, setForce] = useState(false);
   const [showAnyway, setShowAnyway] = useState(false);
+  /** Markdown preview instead of source; the tab's own, never saved. */
+  const [preview, setPreview] = useState(false);
   /** Bumped when git or the file changed; the last content stays up meanwhile. */
   const [version, setVersion] = useState(0);
   const available = planeKind !== "gone" && planeKind !== "creating";
@@ -55,6 +58,10 @@ export function FileTabView({ tab }: { tab: FileTab }) {
   const patch = content.kind === "diff" && content.diff.kind === "diff" ? content.diff.patch : null;
   const rename = patch ? renameOf(patch) : null;
   const line = patch ? firstChangedLine(patch) : undefined;
+  const markdown =
+    isMarkdown(path) && content.kind === "plain" && content.text.kind === "text"
+      ? content.text.contents
+      : null;
   const open = () => void openFile(planeId, path, line);
   const openButton = (
     <button type="button" onClick={open}>
@@ -68,6 +75,16 @@ export function FileTabView({ tab }: { tab: FileTab }) {
         <span className={styles.path} title={path}>
           {rename ? `${rename.from} → ${rename.to}` : path}
         </span>
+        {markdown !== null && (
+          <fieldset className={styles.toggle} aria-label="Markdown view">
+            <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>
+              Source
+            </button>
+            <button type="button" aria-pressed={preview} onClick={() => setPreview(true)}>
+              Preview
+            </button>
+          </fieldset>
+        )}
         {patch && (
           <fieldset className={styles.toggle} aria-label="Diff layout">
             {(["unified", "split"] as const).map((style) => (
@@ -93,16 +110,22 @@ export function FileTabView({ tab }: { tab: FileTab }) {
         </button>
       </header>
       <div className={styles.body}>
-        <Body
-          tab={tab}
-          content={content}
-          showAnyway={showAnyway}
-          openButton={openButton}
-          onForce={() => setForce(true)}
-          onShowAnyway={() => setShowAnyway(true)}
-          diffStyle={diffStyle}
-          loadContents={loadContents}
-        />
+        {preview && markdown !== null ? (
+          <Suspense fallback={null}>
+            <MarkdownView source={markdown} />
+          </Suspense>
+        ) : (
+          <Body
+            tab={tab}
+            content={content}
+            showAnyway={showAnyway}
+            openButton={openButton}
+            onForce={() => setForce(true)}
+            onShowAnyway={() => setShowAnyway(true)}
+            diffStyle={diffStyle}
+            loadContents={loadContents}
+          />
+        )}
       </div>
     </div>
   );
@@ -264,6 +287,11 @@ async function load(
   } catch (error) {
     return { kind: "error", message: String(error) };
   }
+}
+
+/** `.md` / `.markdown`, any case. */
+function isMarkdown(path: string): boolean {
+  return /\.(md|markdown)$/i.test(path);
 }
 
 function formatSize(bytes: number): string {

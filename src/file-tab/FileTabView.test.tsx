@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { applyFileTabsChanged, refresh, useStore } from "../store/store";
 import type { FileTab } from "../tabs/fileTabs";
@@ -11,11 +11,13 @@ vi.mock("./DiffView", () => ({
       {props.contents}
     </div>
   ),
+  highlightCode: async (code: string, lang: string) =>
+    lang === "ts" ? [[{ content: code, color: "#ff0000" }]] : null,
 }));
 
-const tab = (mode: FileTab["mode"] = "worktree"): FileTab => ({
+const tab = (mode: FileTab["mode"] = "worktree", path = "web/src/foo.ts"): FileTab => ({
   planeId: "a",
-  path: "web/src/foo.ts",
+  path,
   mode,
   pinned: true,
 });
@@ -160,5 +162,132 @@ describe("FileTabView", () => {
     await screen.findByRole("heading", { name: "No changes" });
     await act(() => refresh());
     expect(backend.called("plane_file_diff")).toHaveLength(2);
+  });
+
+  describe("Markdown preview", () => {
+    const README = [
+      "# Hello",
+      "",
+      "| a | b |",
+      "| - | - |",
+      "| 1 | 2 |",
+      "",
+      "<b>bold</b>",
+      "",
+      "[docs](https://example.com)",
+      "",
+      "```ts",
+      "const x = 1;",
+      "```",
+      "",
+    ].join("\n");
+
+    const plainFile = (contents = README) =>
+      mockBackend({
+        plane_file_diff: () => ({ kind: "plain" }),
+        plane_read_file: () => ({ kind: "text", contents }),
+      });
+
+    it.each(["README.md", "docs/Notes.MARKDOWN"])("offers it for %s, on Source", async (path) => {
+      plainFile();
+      render(<FileTabView tab={tab("file", path)} />);
+      await screen.findByTestId("diff-view");
+      expect(screen.getByRole("button", { name: "Source" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
+    it("renders GFM on Preview and switches back to Source", async () => {
+      plainFile();
+      render(<FileTabView tab={tab("file", "README.md")} />);
+      await screen.findByTestId("diff-view");
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      expect(await screen.findByRole("heading", { name: "Hello" })).toBeInTheDocument();
+      expect(screen.getByRole("table")).toBeInTheDocument();
+      expect(screen.queryByTestId("diff-view")).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: "Source" }));
+      expect(screen.getByTestId("diff-view")).toHaveTextContent("# Hello");
+    });
+
+    it("keeps raw HTML escaped", async () => {
+      plainFile();
+      const { container } = render(<FileTabView tab={tab("file", "README.md")} />);
+      await screen.findByTestId("diff-view");
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      await screen.findByRole("heading", { name: "Hello" });
+      expect(container.querySelector("b")).toBeNull();
+      expect(screen.getByText("<b>bold</b>")).toBeInTheDocument();
+    });
+
+    it("doesn't navigate on a link click", async () => {
+      plainFile();
+      render(<FileTabView tab={tab("file", "README.md")} />);
+      await screen.findByTestId("diff-view");
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      const link = await screen.findByRole("link", { name: "docs" });
+      expect(link).toHaveAttribute("href", "https://example.com");
+      expect(fireEvent.click(link)).toBe(false);
+    });
+
+    it("highlights a fenced code block once its grammar loads", async () => {
+      plainFile();
+      render(<FileTabView tab={tab("file", "README.md")} />);
+      await screen.findByTestId("diff-view");
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      const token = await screen.findByText("const x = 1;", { selector: "span" });
+      expect(token).toHaveStyle({ color: "#ff0000" });
+    });
+
+    it("keeps the preview when the file changes on disk", async () => {
+      let contents = README;
+      mockBackend({
+        plane_file_diff: () => ({ kind: "plain" }),
+        plane_read_file: () => ({ kind: "text", contents }),
+      });
+      render(<FileTabView tab={tab("file", "README.md")} />);
+      await screen.findByTestId("diff-view");
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      await screen.findByRole("heading", { name: "Hello" });
+      contents = "# Changed";
+      await act(async () => applyFileTabsChanged({ planeId: "a" }));
+      expect(await screen.findByRole("heading", { name: "Changed" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+
+    it("isn't offered on a diff", async () => {
+      mockBackend({ plane_file_diff: () => ({ kind: "diff", patch: PATCH }) });
+      render(<FileTabView tab={tab("worktree", "README.md")} />);
+      await screen.findByTestId("diff-view");
+      expect(screen.getByRole("button", { name: "Split" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    });
+
+    it("isn't offered for other files", async () => {
+      plainFile();
+      render(<FileTabView tab={tab("file", "notes.txt")} />);
+      await screen.findByTestId("diff-view");
+      expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    });
+
+    it.each([
+      ["binary", { kind: "binary", size: 512 }, "512 B"],
+      ["too large", { kind: "tooLarge", size: 3 * 1024 * 1024 }, "3.0 MB"],
+    ])("isn't offered for a %s file", async (_, text, size) => {
+      mockBackend({
+        plane_file_diff: () => ({ kind: "plain" }),
+        plane_read_file: () => text,
+      });
+      render(<FileTabView tab={tab("file", "README.md")} />);
+      expect(await screen.findByText(size)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    });
   });
 });
