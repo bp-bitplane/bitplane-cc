@@ -2,6 +2,9 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Inherited into Pierre's shadow DOM; its gutters keep their own `none`. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .raw {
