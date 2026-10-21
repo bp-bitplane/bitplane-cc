@@ -27,7 +27,6 @@ export type Action =
   | "zoomIn"
   | "zoomOut"
   | "zoomReset"
-  | "quit"
   | "blockReload";
 
 export interface Shortcut {
@@ -61,7 +60,6 @@ export const KEYMAP: Record<Platform, Shortcut[]> = {
     { action: "zoomIn", combos: ["Meta+Equal", "Shift+Meta+Equal"], label: "⌘=" },
     { action: "zoomOut", combos: ["Meta+Minus"], label: "⌘-" },
     { action: "zoomReset", combos: ["Meta+Digit0"], label: "⌘0" },
-    { action: "quit", combos: ["Meta+KeyQ"], label: "⌘Q" },
     { action: "blockReload", combos: ["Meta+KeyR"], label: "⌘R" },
   ],
   linux: [

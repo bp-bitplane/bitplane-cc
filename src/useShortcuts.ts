@@ -9,7 +9,6 @@ import {
   openCreateDialog,
   openSession,
   refresh,
-  requestQuit,
   selectTool,
   togglePalette,
   toggleToolPanel,
@@ -87,9 +86,6 @@ export function run({ action, digit = 1 }: Match): void {
       break;
     case "zoomReset":
       zoom(0);
-      break;
-    case "quit":
-      void requestQuit();
       break;
     case "blockReload":
       break;

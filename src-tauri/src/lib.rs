@@ -22,7 +22,7 @@ pub mod sessions;
 
 use std::sync::Arc;
 
-use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 use tauri_specta::Event;
@@ -35,6 +35,8 @@ use crate::ipc::{
 
 /// Where tauri-specta writes the TypeScript bindings.
 pub const BINDINGS_PATH: &str = "../src/ipc/bindings.ts";
+
+const QUIT_MENU_ID: &str = "quit";
 
 pub fn run() {
     let builder = ipc::builder();
@@ -50,6 +52,11 @@ pub fn run() {
                 .build(),
         )
         .menu(menu)
+        .on_menu_event(|handle, event| {
+            if event.id() == QUIT_MENU_ID {
+                let _ = QuitRequested.emit(handle);
+            }
+        })
         .invoke_handler(invoke_handler)
         .setup(move |tauri_app| {
             builder.mount_events(tauri_app);
@@ -123,16 +130,21 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("building the tauri application")
-        .run(|handle, event| {
-            // ⌘Q arrives without a code; `quit` exits with one.
-            if let RunEvent::ExitRequested {
+        .run(|handle, event| match event {
+            // `quit` exits with a code; anything else asks first.
+            RunEvent::ExitRequested {
                 api, code: None, ..
-            } = event
-                && !quit::is_quitting()
-            {
+            } if !quit::is_quitting() => {
                 api.prevent_exit();
                 let _ = QuitRequested.emit(handle);
             }
+            // A Dock Quit (`terminate:`) can't be prevented and skips `quit`.
+            RunEvent::Exit => {
+                if let Some(app) = handle.try_state::<ipc::AppState>() {
+                    quit::tear_down(&app);
+                }
+            }
+            _ => {}
         });
 }
 
@@ -149,7 +161,8 @@ pub fn export_bindings<R: Runtime>(
         .map_err(|e| e.to_string())
 }
 
-/// The standard menus minus Close Window, whose ⌘W closes a session here.
+/// The standard menus minus Close Window, whose ⌘W closes a session here, and
+/// with a Quit that asks first: the standard one quits through `terminate:`.
 fn menu<R: Runtime>(handle: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
     let name = handle.package_info().name.clone();
     Menu::with_items(
@@ -168,7 +181,14 @@ fn menu<R: Runtime>(handle: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
                     &PredefinedMenuItem::hide_others(handle, None)?,
                     &PredefinedMenuItem::show_all(handle, None)?,
                     &PredefinedMenuItem::separator(handle)?,
-                    &PredefinedMenuItem::quit(handle, None)?,
+                    &MenuItem::with_id(
+                        handle,
+                        QUIT_MENU_ID,
+                        format!("Quit {name}"),
+                        true,
+                        // Linux keeps plain Ctrl keys for the terminal.
+                        cfg!(target_os = "macos").then_some("Cmd+Q"),
+                    )?,
                 ],
             )?,
             &Submenu::with_items(
