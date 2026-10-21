@@ -200,12 +200,20 @@ function Group({
         <span className={styles.count}>{changes.length}</span>
       </li>
       {changes.map((change) => {
+        const dir = dirName(change.path);
         const row = (
           <>
-            <span className={styles.fileName}>{fileName(change.path)}</span>
-            <span className={styles.fileDir}>{dirName(change.path)}</span>
             <span className={`${styles.kind} ${styles[letter ? "untracked" : change.kind]}`}>
               {letter ?? KIND_LETTERS[change.kind]}
+            </span>
+            <span className={styles.fileText}>
+              {/* rtl clips a long dir from the left; <bdi> keeps its slashes in order. */}
+              {dir && (
+                <span className={styles.fileDir}>
+                  <bdi>{dir}/</bdi>
+                </span>
+              )}
+              <span className={styles.fileName}>{fileName(change.path)}</span>
             </span>
           </>
         );
