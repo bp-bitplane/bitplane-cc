@@ -119,7 +119,7 @@ export function FileTabView({ tab }: { tab: FileTab }) {
       <div className={styles.body}>
         {preview && markdown !== null ? (
           <Suspense fallback={null}>
-            <MarkdownView source={markdown} />
+            <MarkdownView planeId={planeId} path={path} source={markdown} />
           </Suspense>
         ) : (
           <Body
