@@ -1,6 +1,6 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { FileEntry } from "../../ipc";
+import type { FileEntry, Repo } from "../../ipc";
 import { applyFilesChanged, useStore } from "../../store/store";
 import { mockBackend, plane, planesModel, repo, seed } from "../../test/fixtures";
 import { run } from "../../useShortcuts";
@@ -17,7 +17,7 @@ const web = repo("web", {
 
 let disk: Record<string, FileEntry[]>;
 
-function show(edit: (disk: Record<string, FileEntry[]>) => void = () => {}) {
+function show(edit: (disk: Record<string, FileEntry[]>) => void = () => {}, repos: Repo[] = [web]) {
   disk = {
     "": [dir("projects"), file("plane.toml")],
     projects: [dir("web")],
@@ -26,7 +26,7 @@ function show(edit: (disk: Record<string, FileEntry[]>) => void = () => {}) {
   };
   edit(disk);
   const backend = mockBackend({
-    plane_source_control: () => [web],
+    plane_source_control: () => repos,
     plane_list_dir: ({ path }) => {
       const entries = disk[path as string];
       if (!entries) throw new Error(`${path} no longer exists`);
@@ -45,6 +45,21 @@ function show(edit: (disk: Record<string, FileEntry[]>) => void = () => {}) {
 
 async function settle() {
   await act(() => new Promise((resolve) => setTimeout(resolve, 30)));
+}
+
+/** Opens the web Member, which Files starts with collapsed. */
+async function showWeb() {
+  const view = show();
+  await settle();
+  click(row("projects/web/"));
+  await settle();
+  return view;
+}
+
+function click(target: HTMLElement) {
+  act(() => {
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+  });
 }
 
 function rows(): HTMLElement[] {
@@ -67,17 +82,29 @@ function listed(backend: ReturnType<typeof mockBackend>): unknown[] {
 }
 
 describe("Files", () => {
-  it("opens on the plane root with the Members' folders expanded", async () => {
-    const { backend } = show();
+  it("opens on the plane root with the Members' folders collapsed", async () => {
+    const { backend } = show(
+      (disk) => {
+        disk.projects = [dir("web"), dir("api")];
+      },
+      [web, repo("api")],
+    );
     await settle();
-    expect(listed(backend)).toEqual(["", "projects", "projects/web"]);
-    expect(paths()).toContain("projects/web/a.ts");
-    expect(useStore.getState().filesExpanded.alpha).toEqual(["projects/", "projects/web/"]);
+    expect(listed(backend)).toEqual(["", "projects"]);
+    expect(paths()).toEqual(["projects/", "projects/api/", "projects/web/", "plane.toml"]);
+    expect(useStore.getState().filesExpanded.alpha).toEqual(["projects/"]);
+  });
+
+  it("opens on the plane root's own files when the plane has no Members", async () => {
+    const { backend } = show(() => {}, []);
+    await settle();
+    expect(listed(backend)).toEqual([""]);
+    expect(paths()).toEqual(["projects/", "plane.toml"]);
+    expect(useStore.getState().filesExpanded.alpha).toEqual([]);
   });
 
   it("shows each Member's branch, git status and dimmed ignored entries", async () => {
-    show();
-    await settle();
+    await showWeb();
     expect(rows().some((r) => r.textContent?.includes("feat/x"))).toBe(true);
     expect(row("projects/web/a.ts").dataset.itemGitStatus).toBe("modified");
     expect(row("projects/web/.git/").dataset.itemGitStatus).toBe("ignored");
@@ -85,13 +112,8 @@ describe("Files", () => {
   });
 
   it("lists a folder when it's expanded and watches the open folders", async () => {
-    const { backend } = show();
-    await settle();
-    act(() => {
-      row("projects/web/dist/").dispatchEvent(
-        new MouseEvent("click", { bubbles: true, composed: true }),
-      );
-    });
+    const { backend } = await showWeb();
+    click(row("projects/web/dist/"));
     await settle();
     expect(listed(backend)).toContain("projects/web/dist");
     expect(paths()).toContain("projects/web/dist/out.js");
@@ -102,8 +124,7 @@ describe("Files", () => {
   });
 
   it("lists a folder again when the watcher reports it", async () => {
-    const { backend } = show();
-    await settle();
+    const { backend } = await showWeb();
     disk["projects/web"] = [...(disk["projects/web"] ?? []), file("b.ts")];
     act(() => applyFilesChanged({ planeId: "alpha", dirs: ["projects/web"] }));
     act(() => applyFilesChanged({ planeId: "beta", dirs: ["projects"] }));
@@ -113,8 +134,7 @@ describe("Files", () => {
   });
 
   it("drops a folder that disappeared", async () => {
-    show();
-    await settle();
+    await showWeb();
     disk.projects = [];
     delete disk["projects/web"];
     act(() => applyFilesChanged({ planeId: "alpha", dirs: ["projects", "projects/web"] }));
@@ -123,8 +143,7 @@ describe("Files", () => {
   });
 
   it("lists every folder and reads git status again on Refresh and ⌘⇧R", async () => {
-    const { backend } = show();
-    await settle();
+    const { backend } = await showWeb();
     await userEvent.click(screen.getByRole("button", { name: /^Refresh/ }));
     await settle();
     expect(listed(backend).slice(3).sort()).toEqual(["", "projects", "projects/web"]);
@@ -143,6 +162,15 @@ describe("Files", () => {
     expect(useStore.getState().filesExpanded.alpha).toEqual([]);
   });
 
+  it("keeps a Member the user expanded when it's shown again", async () => {
+    const { unmount } = await showWeb();
+    unmount();
+    render(<ToolPanel />);
+    await settle();
+    expect(paths()).toContain("projects/web/a.ts");
+    expect(useStore.getState().filesExpanded.alpha).toEqual(["projects/", "projects/web/"]);
+  });
+
   it("keeps the expanded folders when it's shown again", async () => {
     const { unmount } = show();
     await settle();
@@ -154,8 +182,7 @@ describe("Files", () => {
   });
 
   it("opens a file as the plane's preview File tab on click", async () => {
-    const { backend } = show();
-    await settle();
+    const { backend } = await showWeb();
     act(() => {
       row("projects/web/a.ts").dispatchEvent(
         new MouseEvent("click", { bubbles: true, composed: true }),
@@ -170,8 +197,7 @@ describe("Files", () => {
   });
 
   it("opens a file from its context menu, as a File tab or in VS Code", async () => {
-    const { backend } = show();
-    await settle();
+    const { backend } = await showWeb();
     const menu = async () => {
       act(() => {
         row("projects/web/a.ts").dispatchEvent(
@@ -199,8 +225,7 @@ describe("Files", () => {
   });
 
   it("copies a row's absolute and relative path", async () => {
-    show();
-    await settle();
+    await showWeb();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     for (const label of ["Copy path", "Copy relative path"]) {

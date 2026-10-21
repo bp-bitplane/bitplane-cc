@@ -99,13 +99,8 @@ describe("repoBranches", () => {
 });
 
 describe("initialExpanded", () => {
-  it("opens each repo's folder and the folders leading to it", () => {
-    expect(initialExpanded([web, api, missing], "/planes/alpha")).toEqual([
-      "projects/",
-      "projects/web/",
-      "projects/api/",
-      "projects/gone/",
-    ]);
+  it("opens the folders leading to each repo but not the repo's own folder", () => {
+    expect(initialExpanded([web, api, missing], "/planes/alpha")).toEqual(["projects/"]);
   });
 
   it("opens nothing for a repo at the plane root", () => {
