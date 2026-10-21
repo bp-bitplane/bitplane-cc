@@ -167,3 +167,216 @@ button.file {
 .copied {
   color: var(--warn);
 }
+
+/* ------------------------------------------------------------------
+ * PROTOTYPE (#36, Source control readability): variant overrides.
+ * `.repos[data-sc=…]` is set from `?sc=` / the floating switcher.
+ * "current" uses the rules above unchanged.
+ * ------------------------------------------------------------------ */
+
+/* A · Sidebar rows, spaced Members: the Member head is a Sidebar plane row,
+ * files hang off a guide line like the Sidebar's session list, and Members are
+ * separated by a larger margin only. */
+.repos[data-sc="a"] .repo {
+  margin: 0 6px 14px;
+}
+
+.repos[data-sc="a"] .repoHead {
+  height: 32px;
+  padding: 0 8px 0 4px;
+  border-radius: 8px;
+}
+
+.repos[data-sc="a"] .chevron {
+  width: 20px;
+}
+
+.repos[data-sc="a"] .group {
+  margin: 0 0 4px 14px;
+  padding: 0 0 2px 10px;
+  border-left: 1px solid #2c2c2c;
+}
+
+.repos[data-sc="a"] .groupHead {
+  height: 24px;
+  padding: 4px 4px 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.repos[data-sc="a"] .groupHead .count {
+  margin-left: 6px;
+  background: transparent;
+  padding: 0;
+  min-width: 0;
+  color: var(--faint);
+}
+
+.repos[data-sc="a"] .file {
+  gap: 8px;
+  height: 26px;
+  line-height: 26px;
+  padding: 0 4px 0 8px;
+}
+
+.repos[data-sc="a"] .fileName {
+  max-width: 65%;
+}
+
+.repos[data-sc="a"] .fileDir {
+  font: 11px var(--mono);
+}
+
+.repos[data-sc="a"] .current,
+.repos[data-sc="a"] .current:hover {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.repos[data-sc="a"] .row {
+  padding-left: 32px;
+}
+
+/* B · Two-line rows, divided Members: kind is a tinted badge on the left,
+ * the directory sits on its own second line, and a full-width rule plus a
+ * sticky Member head separate Members. */
+.repos[data-sc="b"] {
+  padding: 0;
+}
+
+.repos[data-sc="b"] .repo {
+  margin: 0;
+  padding: 0 6px 8px;
+  border-top: 1px solid var(--line);
+}
+
+.repos[data-sc="b"] .repo:first-child {
+  border-top: 0;
+}
+
+.repos[data-sc="b"] .repoHead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 34px;
+  border-radius: 0;
+  background: var(--panel);
+}
+
+.repos[data-sc="b"] .groupHead {
+  padding-left: 24px;
+}
+
+.repos[data-sc="b"] .file {
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  line-height: normal;
+  padding: 0 6px 0 22px;
+}
+
+.repos[data-sc="b"] .fileText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.repos[data-sc="b"] .fileName {
+  max-width: 100%;
+  line-height: 16px;
+}
+
+.repos[data-sc="b"] .fileDir {
+  font: 11px var(--mono);
+  line-height: 14px;
+}
+
+.repos[data-sc="b"] .kind {
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.repos[data-sc="b"] .current,
+.repos[data-sc="b"] .current:hover {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* C · Path-first rows, boxed Members: each Member is a raised box (the Sidebar's
+ * selected-plane group), a row reads `dir/name` like a path with the dir clipped
+ * from the left, and the kind is a coloured dot plus coloured name. */
+.repos[data-sc="c"] .repo {
+  margin: 0 6px 8px;
+  padding: 2px 2px 4px;
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.repos[data-sc="c"] .repoHead {
+  height: 32px;
+  border-radius: 8px;
+}
+
+.repos[data-sc="c"] .groupHead {
+  padding-left: 24px;
+}
+
+.repos[data-sc="c"] .file {
+  align-items: center;
+  gap: 0;
+  height: 24px;
+  padding: 0 6px 0 24px;
+}
+
+.repos[data-sc="c"] .dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.repos[data-sc="c"] .fileDir {
+  flex: 0 1 auto;
+  direction: rtl;
+  text-align: left;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.repos[data-sc="c"] .fileName {
+  flex: 0 1 auto;
+  max-width: none;
+  min-width: 40px;
+}
+
+.repos[data-sc="c"] .fileName.deleted {
+  text-decoration: line-through;
+}
+
+.repos[data-sc="c"] .kind {
+  margin-left: auto;
+  padding-left: 8px;
+  width: auto;
+  opacity: 0;
+}
+
+.repos[data-sc="c"] .file:hover .kind {
+  opacity: 1;
+}
+
+.repos[data-sc="c"] .current,
+.repos[data-sc="c"] .current:hover {
+  background: var(--accent-soft);
+  font-weight: 600;
+}

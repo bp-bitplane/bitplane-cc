@@ -11,6 +11,7 @@
     "dev": "tauri dev",
     "build": "tauri build --no-sign",
     "vite:dev": "vite",
+    "prototype:sc": "vite --open /source-control.prototype.html",
     "vite:build": "tsc && vite build",
     "typecheck": "tsc",
     "lint": "biome check . && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",

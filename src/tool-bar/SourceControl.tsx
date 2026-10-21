@@ -24,8 +24,10 @@ import { Centered } from "../ui/Centered";
 import { headLabel, repoPrefix } from "./files/filesTree";
 import { PanelActions, PanelButton } from "./PanelButton";
 import styles from "./SourceControl.module.css";
+import { PrototypeSwitcher, useScVariant, type Variant } from "./sourceControlPrototype";
 
 export function SourceControl({ planeId }: { planeId: string }) {
+  const variant = useScVariant();
   const sourceControl = useStore((s) => s.sourceControl);
   useEffect(() => {
     void loadSourceControl(planeId);
@@ -48,10 +50,11 @@ export function SourceControl({ planeId }: { planeId: string }) {
     );
   }
   return (
-    <div className={styles.repos}>
+    <div className={styles.repos} data-sc={variant}>
       {current.repos.map((repo) => (
         <RepoSection key={repo.path} planeId={planeId} repo={repo} />
       ))}
+      <PrototypeSwitcher />
     </div>
   );
 }
@@ -191,6 +194,7 @@ function Group({
   mode: FileTabMode;
   letter?: string;
 }) {
+  const variant = useScVariant();
   const active = useStore((s) => (target ? activeFileTab(s, target.planeId) : undefined));
   if (changes.length === 0) return null;
   return (
@@ -201,13 +205,12 @@ function Group({
       </li>
       {changes.map((change) => {
         const row = (
-          <>
-            <span className={styles.fileName}>{fileName(change.path)}</span>
-            <span className={styles.fileDir}>{dirName(change.path)}</span>
-            <span className={`${styles.kind} ${styles[letter ? "untracked" : change.kind]}`}>
-              {letter ?? KIND_LETTERS[change.kind]}
-            </span>
-          </>
+          <ChangeRow
+            variant={variant}
+            path={change.path}
+            kindClass={styles[letter ? "untracked" : change.kind]}
+            letter={letter ?? KIND_LETTERS[change.kind]}
+          />
         );
         const title = change.from ? `${change.from} → ${change.path}` : change.path;
         // An untracked folder (`dir/`) has no single file to open.
@@ -236,6 +239,57 @@ function Group({
       })}
     </ul>
   );
+}
+
+/** PROTOTYPE (#36): how one change row reads, per variant. */
+function ChangeRow({
+  variant,
+  path,
+  kindClass,
+  letter,
+}: {
+  variant: Variant;
+  path: string;
+  kindClass: string | undefined;
+  letter: string;
+}) {
+  const name = <span className={styles.fileName}>{fileName(path)}</span>;
+  const dir = dirName(path);
+  const kind = <span className={`${styles.kind} ${kindClass}`}>{letter}</span>;
+  switch (variant) {
+    case "current":
+    case "a":
+      return (
+        <>
+          {name}
+          <span className={styles.fileDir}>{dir}</span>
+          {kind}
+        </>
+      );
+    case "b":
+      return (
+        <>
+          {kind}
+          <span className={styles.fileText}>
+            {name}
+            {dir && <span className={styles.fileDir}>{dir}</span>}
+          </span>
+        </>
+      );
+    case "c":
+      return (
+        <>
+          <span className={`${styles.dot} ${kindClass}`} />
+          {dir && (
+            <span className={styles.fileDir}>
+              <bdi>{dir}/</bdi>
+            </span>
+          )}
+          <span className={`${styles.fileName} ${kindClass}`}>{fileName(path)}</span>
+          {kind}
+        </>
+      );
+  }
 }
 
 function Row({ children, warn = false }: { children: ReactNode; warn?: boolean }) {
