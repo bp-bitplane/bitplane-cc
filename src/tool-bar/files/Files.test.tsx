@@ -153,12 +153,12 @@ describe("Files", () => {
     expect(paths()).toEqual(["projects/", "plane.toml"]);
   });
 
-  it("opens a file as the plane's preview File tab on double-click", async () => {
+  it("opens a file as the plane's preview File tab on click", async () => {
     const { backend } = show();
     await settle();
     act(() => {
       row("projects/web/a.ts").dispatchEvent(
-        new MouseEvent("dblclick", { bubbles: true, composed: true }),
+        new MouseEvent("click", { bubbles: true, composed: true }),
       );
     });
     await settle();
@@ -249,9 +249,10 @@ describe("Files", () => {
     const error = row(`projects/notes/${ERROR_ROW}`);
     expect(error.textContent).toContain("projects/notes no longer exists");
     act(() => {
-      error.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, composed: true }));
+      error.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
     });
     expect(backend.called("plane_open_file")).toEqual([]);
+    expect(useStore.getState().fileTabs.alpha ?? []).toEqual([]);
 
     disk["projects/notes"] = [file("a.md")];
     await userEvent.click(screen.getByRole("button", { name: /^Refresh/ }));

@@ -84,13 +84,25 @@ describe("FileTree", () => {
     );
   });
 
-  it("opens a file on double-click, not a folder", async () => {
+  it("opens a file on click, not a folder", async () => {
     const { props } = show();
     await settle();
-    fire(row("src/"), new MouseEvent("dblclick", { bubbles: true, composed: true }));
-    fire(row("src/main.ts"), new MouseEvent("dblclick", { bubbles: true, composed: true }));
+    fire(row("src/"), new MouseEvent("click", { bubbles: true, composed: true }));
+    fire(row("src/main.ts"), new MouseEvent("click", { bubbles: true, composed: true }));
     expect(props.onOpen).toHaveBeenCalledTimes(1);
     expect(props.onOpen).toHaveBeenCalledWith("src/main.ts");
+  });
+
+  it("doesn't open a file on a selecting click", async () => {
+    const { props } = show();
+    await settle();
+    for (const modifier of ["shiftKey", "metaKey", "ctrlKey"]) {
+      fire(
+        row("src/main.ts"),
+        new MouseEvent("click", { bubbles: true, composed: true, [modifier]: true }),
+      );
+    }
+    expect(props.onOpen).not.toHaveBeenCalled();
   });
 
   it("opens the focused file on Enter", async () => {
@@ -98,11 +110,12 @@ describe("FileTree", () => {
     await settle();
     fire(row("README.md"), new MouseEvent("click", { bubbles: true, composed: true }));
     await settle();
+    vi.mocked(props.onOpen).mockClear();
     fire(
       row("README.md"),
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true }),
     );
-    expect(props.onOpen).toHaveBeenCalledWith("README.md");
+    expect(props.onOpen).toHaveBeenCalledExactlyOnceWith("README.md");
   });
 
   it("opens the focused file externally on ⌘↩ or Ctrl+Enter", async () => {
@@ -110,6 +123,7 @@ describe("FileTree", () => {
     await settle();
     fire(row("README.md"), new MouseEvent("click", { bubbles: true, composed: true }));
     await settle();
+    vi.mocked(props.onOpen).mockClear();
     for (const modifier of [{ metaKey: true }, { ctrlKey: true }]) {
       fire(
         row("README.md"),
