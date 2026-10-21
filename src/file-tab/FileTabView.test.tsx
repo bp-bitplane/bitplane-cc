@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { fileTabsOf } from "../store/selectors";
 import { applyFileTabsChanged, refresh, useStore } from "../store/store";
@@ -229,6 +229,21 @@ describe("FileTabView", () => {
       const link = await screen.findByRole("link", { name: "docs" });
       expect(link).toHaveAttribute("href", "https://example.com");
       expect(fireEvent.click(link)).toBe(false);
+    });
+
+    it("opens a relative link in place of its own unpinned tab", async () => {
+      mockBackend({
+        plane_file_diff: () => ({ kind: "plain" }),
+        plane_read_file: () => ({ kind: "text", contents: "[readme](../README.md)" }),
+        plane_list_dir: () => [],
+      });
+      renderOpen({ ...tab("file", "docs/guide.md"), pinned: false, preview: true });
+      fireEvent.click(await screen.findByRole("link", { name: "readme" }));
+      await waitFor(() =>
+        expect(fileTabsOf(useStore.getState(), "a")).toEqual([
+          { planeId: "a", path: "README.md", mode: "file", pinned: false },
+        ]),
+      );
     });
 
     it("highlights a fenced code block once its grammar loads", async () => {
