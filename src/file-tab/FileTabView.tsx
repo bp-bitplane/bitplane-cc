@@ -144,9 +144,9 @@ export function FileTabView({ tab }: { tab: FileTab }) {
         {preview ? (
           <Suspense fallback={null}>
             {markdown !== null ? (
-              <MarkdownView source={markdown} />
+              <MarkdownView planeId={planeId} path={path} source={markdown} />
             ) : (
-              <PreviewSides sides={sides} staged={mode === "index"} title={fileTabTitle(tab)} />
+              <PreviewSides tab={tab} sides={sides} />
             )}
           </Suspense>
         ) : (
@@ -167,21 +167,31 @@ export function FileTabView({ tab }: { tab: FileTab }) {
 }
 
 /** Both sides of a Markdown diff, rendered; Source is where the changes show. */
-function PreviewSides({ sides, staged, title }: { sides: Sides; staged: boolean; title: string }) {
+function PreviewSides({ tab, sides }: { tab: FileTab; sides: Sides }) {
   switch (sides.kind) {
     case "loading":
       return null;
     case "error":
       return (
-        <Centered title={`Couldn't open ${title}`}>
+        <Centered title={`Couldn't open ${fileTabTitle(tab)}`}>
           <p>{sides.message}</p>
         </Centered>
       );
     case "ready":
       return (
         <div className={styles.split}>
-          <MarkdownView source={sides.contents.old} note="Before" />
-          <MarkdownView source={sides.contents.new} note={staged ? "Staged" : "Working tree"} />
+          <MarkdownView
+            planeId={tab.planeId}
+            path={tab.path}
+            source={sides.contents.old}
+            note="Before"
+          />
+          <MarkdownView
+            planeId={tab.planeId}
+            path={tab.path}
+            source={sides.contents.new}
+            note={tab.mode === "index" ? "Staged" : "Working tree"}
+          />
         </div>
       );
   }

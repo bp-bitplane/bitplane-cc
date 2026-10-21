@@ -46,6 +46,35 @@ export function folderOf(path: string): string {
 }
 
 /**
+ * A Markdown link's `href` in the file at `fromPath` → the plane path it
+ * points to. `#fragment` and `?query` drop, the rest is percent-decoded, and
+ * `/x` is plane-root-relative like a repo-root link on GitHub. `null` for a
+ * scheme or `//` link, a folder (trailing `/`, `.`, `..`), the plane root, or
+ * anything above it.
+ */
+export function resolvePlaneLink(fromPath: string, href: string): string | null {
+  const bare = href.replace(/[?#].*$/, "");
+  if (bare === "" || /^[a-z][a-z\d+.-]*:/i.test(bare) || bare.startsWith("//")) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(bare);
+  } catch {
+    return null;
+  }
+  const segments = decoded.startsWith("/") ? [] : folderOf(fromPath).split("/").filter(Boolean);
+  const parts = decoded.split("/");
+  for (const part of parts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      if (segments.pop() === undefined) return null;
+    } else segments.push(part);
+  }
+  const last = parts.at(-1);
+  if (last === "" || last === "." || last === ".." || segments.length === 0) return null;
+  return segments.join("/");
+}
+
+/**
  * Key → the shortest trailing folder that tells apart File tabs whose file
  * names collide; tabs with a unique name get none.
  */
