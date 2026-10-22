@@ -716,7 +716,7 @@ export async function installAgentHooks(): Promise<void> {
   }
 }
 
-/** ⌘Q or closing the window: confirm only when something would be lost. */
+/** Quit from the menu or closing the window: confirm only when something would be lost. */
 export async function requestQuit(): Promise<void> {
   const info = await commands.quitCheck();
   const lost = info.busy.some((b) => !b.resumes || b.working);

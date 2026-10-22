@@ -519,8 +519,14 @@ fn spawn(
     command.env("BITPLANE_PLANE_DIR", plane_dir);
     command.env("BITPLANE_SESSION_ID", &info.key);
     match &config.agents_dir {
-        Some(dir) => command.env("BITPLANE_CC_AGENTS", dir),
-        None => command.env_remove("BITPLANE_CC_AGENTS"),
+        Some(dir) => {
+            command.env("BITPLANE_CC_AGENTS", dir);
+            command.env("BITPLANE_CC_PID", std::process::id().to_string());
+        }
+        None => {
+            command.env_remove("BITPLANE_CC_AGENTS");
+            command.env_remove("BITPLANE_CC_PID");
+        }
     }
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");

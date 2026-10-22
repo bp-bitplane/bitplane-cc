@@ -12,6 +12,7 @@ use crate::app::App;
 
 /// Set once the user confirmed; later exit and close requests go through.
 static QUITTING: AtomicBool = AtomicBool::new(false);
+static TORN_DOWN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -65,14 +66,23 @@ pub fn check(app: &App) -> QuitInfo {
 
 pub fn quit<R: Runtime>(handle: &AppHandle<R>, app: &App) {
     QUITTING.store(true, Ordering::SeqCst);
-    app.prepare_quit();
-    app.sessions.hang_up_all();
-    app.creates.interrupt_all();
+    tear_down(app);
     handle.exit(0);
 }
 
 pub fn is_quitting() -> bool {
     QUITTING.load(Ordering::SeqCst)
+}
+
+/// Runs once, from `quit` or from an exit that skipped it (a Dock Quit), so
+/// a create isn't sent a second SIGINT that would cut its cleanup short.
+pub fn tear_down(app: &App) {
+    if TORN_DOWN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    app.prepare_quit();
+    app.sessions.hang_up_all();
+    app.creates.interrupt_all();
 }
 
 #[cfg(test)]

@@ -10,14 +10,18 @@ use specta::Type;
 use crate::persist::write_atomic;
 
 /// Identifies our entries, so reinstalling replaces them and leaves others.
-const MARKER: &str = "# BITPLANE_CC v1";
+const MARKER: &str = "# BITPLANE_CC v2";
 const MARKER_PREFIX: &str = "# BITPLANE_CC";
 
 // `$PPID` is the claude process. Every claude started in the tab inherits the
 // tab's id, so the first live one owns the link and a nested `claude -p` (say,
 // from the agent's own Bash tool) neither replaces nor deletes it.
 const WRITE_LINK: &str = r#"if [ -n "$BITPLANE_SESSION_ID" ] && [ -n "$BITPLANE_CC_AGENTS" ]; then f="$BITPLANE_CC_AGENTS/$BITPLANE_SESSION_ID"; o=$(cat "$f.pid" 2>/dev/null); if [ -n "$o" ] && [ "$o" != "$PPID" ] && kill -0 "$o" 2>/dev/null; then cat > /dev/null; else cat > "$f.json.tmp" && mv "$f.json.tmp" "$f.json" && echo "$PPID" > "$f.pid"; fi; else cat > /dev/null; fi"#;
-const REMOVE_LINK: &str = r#"cat > /dev/null; if [ -n "$BITPLANE_SESSION_ID" ] && [ -n "$BITPLANE_CC_AGENTS" ] && [ ! -e "$BITPLANE_CC_AGENTS/.quitting" ]; then f="$BITPLANE_CC_AGENTS/$BITPLANE_SESSION_ID"; o=$(cat "$f.pid" 2>/dev/null); if [ -z "$o" ] || [ "$o" = "$PPID" ]; then rm -f "$f.json" "$f.pid"; fi; fi"#;
+// A claude ends either because the user exited it or because its tab died
+// with the app; only the first drops the link. An app quitting on its own
+// terms marks `.quitting` before it hangs up, any other app death leaves
+// `$BITPLANE_CC_PID` gone or a zombie by the time the PTY closes.
+const REMOVE_LINK: &str = r#"cat > /dev/null; if [ -n "$BITPLANE_SESSION_ID" ] && [ -n "$BITPLANE_CC_AGENTS" ] && [ -n "$BITPLANE_CC_PID" ] && [ ! -e "$BITPLANE_CC_AGENTS/.quitting" ]; then case "$(ps -o stat= -p "$BITPLANE_CC_PID" 2>/dev/null)" in ""|*Z*) ;; *) f="$BITPLANE_CC_AGENTS/$BITPLANE_SESSION_ID"; o=$(cat "$f.pid" 2>/dev/null); if [ -z "$o" ] || [ "$o" = "$PPID" ]; then rm -f "$f.json" "$f.pid"; fi ;; esac; fi"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -241,29 +245,12 @@ mod tests {
     #[test]
     fn hook_commands_write_and_remove_links() {
         let dir = tempfile::tempdir().unwrap();
-        let run = |command: &str, input: &str, env: &[(&str, &str)]| {
-            use std::io::Write;
-            let mut child = std::process::Command::new("/bin/sh")
-                .arg("-c")
-                .arg(format!("{command} {MARKER}"))
-                .env_remove("BITPLANE_SESSION_ID")
-                .env_remove("BITPLANE_CC_AGENTS")
-                .envs(env.iter().copied())
-                .stdin(std::process::Stdio::piped())
-                .spawn()
-                .unwrap();
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(input.as_bytes())
-                .unwrap();
-            assert!(child.wait().unwrap().success());
-        };
         let agents = dir.path().to_str().unwrap();
+        let app = std::process::id().to_string();
         let env = [
             ("BITPLANE_SESSION_ID", "k1"),
             ("BITPLANE_CC_AGENTS", agents),
+            ("BITPLANE_CC_PID", app.as_str()),
         ];
         let link = dir.path().join("k1.json");
 
@@ -299,5 +286,67 @@ mod tests {
         run(REMOVE_LINK, "{}", &env);
         assert!(!link.exists());
         assert!(!owner.exists());
+    }
+
+    #[test]
+    fn remove_link_keeps_the_link_once_the_app_is_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let agents = dir.path().to_str().unwrap();
+        let link = dir.path().join("k1.json");
+        let remove_with_app = |app: &str| {
+            std::fs::write(&link, "{}").unwrap();
+            std::fs::write(dir.path().join("k1.pid"), std::process::id().to_string()).unwrap();
+            run(
+                REMOVE_LINK,
+                "{}",
+                &[
+                    ("BITPLANE_SESSION_ID", "k1"),
+                    ("BITPLANE_CC_AGENTS", agents),
+                    ("BITPLANE_CC_PID", app),
+                ],
+            );
+            link.exists()
+        };
+
+        let mut exited = std::process::Command::new("true").spawn().unwrap();
+        let zombie = exited.id().to_string();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &zombie])
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains('Z'))
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no zombie to test with"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(remove_with_app(&zombie), "the app exiting hangs up the tab");
+        exited.wait().unwrap();
+        assert!(remove_with_app(&zombie), "the app is gone");
+        assert!(remove_with_app(""), "a shell the app didn't start");
+        assert!(!remove_with_app(&std::process::id().to_string()));
+    }
+
+    fn run(command: &str, input: &str, env: &[(&str, &str)]) {
+        use std::io::Write;
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(format!("{command} {MARKER}"))
+            .env_remove("BITPLANE_SESSION_ID")
+            .env_remove("BITPLANE_CC_AGENTS")
+            .env_remove("BITPLANE_CC_PID")
+            .envs(env.iter().copied())
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success());
     }
 }
