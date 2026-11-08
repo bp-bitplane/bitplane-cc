@@ -16,6 +16,7 @@ use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_
 use crate::app::{App, PlanesModel, Snapshot};
 use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
+use crate::daemon::{DaemonLink, DaemonStatus};
 use crate::diff::{self, DiffMode, FileContents, FileDiff, FileText};
 use crate::editor;
 use crate::files::{self, FileEntry};
@@ -28,6 +29,7 @@ use crate::quit::{self, QuitInfo};
 use crate::sessions::{BusyInfo, OutputSink, SessionError, SessionEvent, SessionId, SessionInfo};
 
 pub type AppState = Arc<App>;
+pub type DaemonState = Arc<DaemonLink>;
 
 /// Header carrying the session id on `pty_write`.
 pub const SESSION_HEADER: &str = "x-session-id";
@@ -49,6 +51,9 @@ pub struct FilesChanged(pub FilesEvent);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct FileTabsChanged(pub FileTabsEvent);
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+pub struct DaemonChanged(pub DaemonStatus);
 
 /// The user asked to quit (⌘Q or closing the window); the frontend decides
 /// whether to confirm.
@@ -88,6 +93,8 @@ pub fn builder() -> Builder<Wry> {
             ui_state_save,
             agent_hooks_describe,
             agent_hooks_install,
+            daemon_status,
+            daemon_retry,
         ])
         .events(collect_events![
             PlanesChanged,
@@ -96,6 +103,7 @@ pub fn builder() -> Builder<Wry> {
             SourceControlChanged,
             FilesChanged,
             FileTabsChanged,
+            DaemonChanged,
             QuitRequested
         ])
         .error_handling(ErrorHandlingMode::Throw)
@@ -122,6 +130,18 @@ fn raw_handler() -> impl Fn(Invoke<Wry>) -> bool + Send + Sync + 'static {
 #[specta::specta]
 fn snapshot(app: State<'_, AppState>) -> Snapshot {
     app.snapshot()
+}
+
+#[tauri::command]
+#[specta::specta]
+fn daemon_status(daemon: State<'_, DaemonState>) -> DaemonStatus {
+    daemon.status()
+}
+
+#[tauri::command]
+#[specta::specta]
+fn daemon_retry(daemon: State<'_, DaemonState>) {
+    daemon.retry();
 }
 
 #[tauri::command]

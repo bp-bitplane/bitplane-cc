@@ -64,3 +64,50 @@ describe("MainArea", () => {
     expect(screen.getByRole("button", { name: "Source" })).toHaveAttribute("aria-pressed", "true");
   });
 });
+
+describe("session daemon banners", () => {
+  it("shows a failed start with its log and retries", async () => {
+    const backend = mockBackend();
+    seed({
+      planes: planesModel([plane("a")]),
+      daemon: {
+        kind: "failed",
+        message: "the daemon did not answer within 5s",
+        log: "/s/sessiond.log",
+      },
+    });
+    render(<MainArea />);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't start the session daemon: the daemon did not answer within 5s Log: /s/sessiond.log",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(backend.called("daemon_retry")).toHaveLength(1);
+  });
+
+  it("names each unavailable module with the daemon's reason", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a")]),
+      daemon: {
+        kind: "connected",
+        version: "0.1.0",
+        instance: "i1",
+        restarted: false,
+        modules: [
+          {
+            module: "plane",
+            available: false,
+            reason: "bp isn't on your PATH; install bitplane-cli",
+          },
+          { module: "git", available: true, reason: null },
+        ],
+      },
+    });
+    render(<MainArea />);
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent(
+      "plane unavailable: bp isn't on your PATH; install bitplane-cli",
+    );
+  });
+});

@@ -60,11 +60,14 @@ export const commands = {
 	uiStateSave: (json: string) => __TAURI_INVOKE<null>("ui_state_save", { json }),
 	agentHooksDescribe: () => __TAURI_INVOKE<AgentHooks>("agent_hooks_describe"),
 	agentHooksInstall: () => __TAURI_INVOKE<null>("agent_hooks_install"),
+	daemonStatus: () => __TAURI_INVOKE<DaemonStatus>("daemon_status"),
+	daemonRetry: () => __TAURI_INVOKE<void>("daemon_retry"),
 };
 
 /** Events */
 export const events = {
 	createChanged: makeEvent<CreateChanged>("create-changed"),
+	daemonChanged: makeEvent<DaemonChanged>("daemon-changed"),
 	fileTabsChanged: makeEvent<FileTabsChanged>("file-tabs-changed"),
 	filesChanged: makeEvent<FilesChanged>("files-changed"),
 	planesChanged: makeEvent<PlanesChanged>("planes-changed"),
@@ -149,6 +152,17 @@ export type CreateStatus = { kind: "running" } | { kind: "succeeded" } |
 /**  A partial plane is left behind; only `bp destroy` cleans it up. */
 { kind: "partial"; envelope: Envelope | null };
 
+export type DaemonChanged = DaemonStatus;
+
+export type DaemonStatus = { kind: "connecting" } | { kind: "connected"; version: string; instance: string; 
+/**
+ *  The daemon is a different instance from the one cc was last
+ *  connected to; a reconnect to the same one is a blip.
+ */
+restarted: boolean; modules: ModuleStatus[] } | { kind: "failed"; message: string; 
+/**  The daemon's log, when it was started and never answered. */
+log: string | null };
+
 export type DiffMode = 
 /**  HEAD ↔ index. */
 "index" | 
@@ -222,6 +236,13 @@ export type HookStatus = "installed" | "missing" |
 export type Member = {
 	spec: string,
 	branch: string | null,
+};
+
+export type ModuleStatus = {
+	module: string,
+	available: boolean,
+	/**  Why it is unavailable, naming the fix. */
+	reason: string | null,
 };
 
 export type Phase = "fetching" | "addingWorktrees" | "runningScripts";

@@ -13,6 +13,7 @@ import {
   openDialog,
   openSession,
   refresh,
+  retryDaemon,
   type State,
   useStore,
 } from "../store/store";
@@ -216,7 +217,32 @@ function Banners(): ReactNode[] {
   const gone = useStore((s) => (planeId ? findPlane(s, planeId)?.kind === "gone" : false));
   const scriptFailed = useStore((s) => (planeId ? Boolean(s.scriptFailed[planeId]) : false));
   const notice = useStore((s) => s.notice);
+  const daemon = useStore((s) => s.daemon);
   const banners: ReactNode[] = [];
+  if (daemon.kind === "failed") {
+    banners.push(
+      <div key="daemon" className={styles.danger} role="alert">
+        <span>
+          Couldn't start the session daemon: {daemon.message}
+          {daemon.log && <> Log: {daemon.log}</>}
+        </span>
+        <button type="button" className={styles.link} onClick={() => void retryDaemon()}>
+          Retry
+        </button>
+      </div>,
+    );
+  }
+  if (daemon.kind === "connected") {
+    for (const module of daemon.modules.filter((m) => !m.available)) {
+      banners.push(
+        <div key={`module:${module.module}`} className={styles.warning} role="alert">
+          <span>
+            <strong>{module.module}</strong> unavailable: {module.reason ?? "no reason given"}
+          </span>
+        </div>,
+      );
+    }
+  }
   if (planeId && gone) {
     banners.push(
       <div key="gone" className={styles.danger} role="alert">

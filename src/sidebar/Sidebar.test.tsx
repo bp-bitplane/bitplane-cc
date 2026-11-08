@@ -132,6 +132,22 @@ describe("Sidebar", () => {
     expect(screen.getByText("Couldn't read your shell environment")).toBeInTheDocument();
   });
 
+  it("shows the connected session daemon's version", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([]),
+      daemon: {
+        kind: "connected",
+        version: "0.1.0",
+        instance: "i1",
+        restarted: false,
+        modules: [],
+      },
+    });
+    render(<Sidebar />);
+    expect(screen.getByText("Session daemon 0.1.0")).toBeInTheDocument();
+  });
+
   describe("context menu", () => {
     beforeEach(() => {
       menu.popup.mockClear();
