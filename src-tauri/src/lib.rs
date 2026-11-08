@@ -5,6 +5,7 @@ pub mod agents;
 pub mod app;
 pub mod bp;
 pub mod create;
+pub mod daemon;
 pub mod diff;
 pub mod editor;
 pub mod env;
@@ -28,9 +29,10 @@ use tauri_plugin_window_state::StateFlags;
 use tauri_specta::Event;
 
 use crate::app::{App, DataDir, Emitters};
+use crate::daemon::DaemonLink;
 use crate::ipc::{
-    CreateChanged, FileTabsChanged, FilesChanged, PlanesChanged, QuitRequested, SessionChanged,
-    SourceControlChanged,
+    CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged, PlanesChanged, QuitRequested,
+    SessionChanged, SourceControlChanged,
 };
 
 /// Where tauri-specta writes the TypeScript bindings.
@@ -114,7 +116,16 @@ pub fn run() {
             );
             app.restore();
             tauri_app.manage::<ipc::AppState>(Arc::clone(&app));
+            let daemon = DaemonLink::new(
+                bitplane_sessiond::paths::Dirs::for_host(),
+                bundled_daemon(),
+                Arc::new(move |status| {
+                    let _ = DaemonChanged(status).emit(&handle);
+                }),
+            );
+            tauri_app.manage::<ipc::DaemonState>(Arc::clone(&daemon));
             tauri::async_runtime::spawn(async move {
+                daemon.start();
                 app.start();
                 app.refresh().await;
             });
@@ -146,6 +157,13 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+/// Tauri puts the sidecar next to cc's own executable, in a bundle and in
+/// `target/<profile>` alike.
+fn bundled_daemon() -> std::path::PathBuf {
+    let exe = std::env::current_exe().unwrap_or_default();
+    exe.with_file_name(bitplane_sessiond::DAEMON_NAME)
 }
 
 /// Write the TypeScript bindings to `path`.

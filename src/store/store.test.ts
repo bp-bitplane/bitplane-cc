@@ -1,3 +1,4 @@
+import { emit } from "@tauri-apps/api/event";
 import {
   createInfo,
   flush,
@@ -14,6 +15,7 @@ import {
   applySession,
   closeActiveTab,
   closeFileTab,
+  connect,
   createPlane,
   cyclePlane,
   cycleTab,
@@ -517,4 +519,31 @@ it("zooms within bounds and resets to 12 px", () => {
   expect(state().fontSize).toBe(8);
   zoom(0);
   expect(state().fontSize).toBe(12);
+});
+
+describe("the session daemon", () => {
+  it("loads its status on connect and follows changes", async () => {
+    mockBackend({
+      snapshot: () => ({ planes: planesModel([]), sessions: [], creates: [], restoreSkipped: [] }),
+      daemon_status: () => ({ kind: "failed", message: "timed out", log: "/s/sessiond.log" }),
+    });
+    const stop = await connect(() => {});
+    expect(state().daemon).toEqual({
+      kind: "failed",
+      message: "timed out",
+      log: "/s/sessiond.log",
+    });
+
+    const connected = {
+      kind: "connected",
+      version: "0.1.0",
+      instance: "i1",
+      restarted: false,
+      modules: [],
+    };
+    await emit("daemon-changed", connected);
+    await flush();
+    expect(state().daemon).toEqual(connected);
+    stop();
+  });
 });

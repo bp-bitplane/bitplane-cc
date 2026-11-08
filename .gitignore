@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# The bundled daemon, built by scripts/build-sidecar.sh
+/src-tauri/binaries
+# A local [patch] onto sibling checkouts; see AGENTS.md
+/.cargo/config.toml

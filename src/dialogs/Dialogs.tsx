@@ -1,6 +1,6 @@
 import { CreatePlaneDialog } from "../create-plane/CreatePlaneDialog";
 import { Log } from "../create-plane/CreateProgress";
-import type { AgentHooks, BusyProcess } from "../ipc";
+import type { AgentHooks, BusyProcess, DaemonInfo } from "../ipc";
 import { closeDialog, closeSession, installAgentHooks, quit, useStore } from "../store/store";
 import styles from "./Dialogs.module.css";
 import { DialogActions, Modal } from "./Modal";
@@ -83,6 +83,8 @@ export function Dialogs() {
     }
     case "agentResume":
       return <AgentResumeDialog hooks={dialog.hooks} error={dialog.error} />;
+    case "daemonInfo":
+      return <DaemonInfoDialog info={dialog.info} />;
     default:
       return null;
   }
@@ -97,6 +99,43 @@ function CreateLogDialog({ planeId }: { planeId: string }) {
         <div className={styles.log}>
           <Log text={log} />
         </div>
+        <DialogActions>
+          <button type="button" onClick={closeDialog}>
+            Close
+          </button>
+        </DialogActions>
+      </div>
+    </Modal>
+  );
+}
+
+function DaemonInfoDialog({ info }: { info: DaemonInfo | null }) {
+  const status = useStore((s) => s.daemon);
+  const rows: [string, string | number | null | undefined][] = [
+    ["Process id", info?.pid],
+    ["Executable", info?.executable],
+    ["Bundled", info?.bundled],
+    ["Socket", info?.socket],
+    ["Log", info?.log],
+  ];
+  return (
+    <Modal label="Session daemon" onClose={closeDialog} wide>
+      <div className={styles.body}>
+        <h3>Session daemon</h3>
+        <dl className={styles.facts}>
+          {rows.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>
+                <code>{value ?? "unknown"}</code>
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p>Status</p>
+        <pre className={styles.log}>{JSON.stringify(status, null, 2)}</pre>
+        <p>Last hello reply</p>
+        <pre className={styles.log}>{info?.hello ?? "No hello reply yet."}</pre>
         <DialogActions>
           <button type="button" onClick={closeDialog}>
             Close

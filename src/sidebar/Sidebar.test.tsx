@@ -132,6 +132,22 @@ describe("Sidebar", () => {
     expect(screen.getByText("Couldn't read your shell environment")).toBeInTheDocument();
   });
 
+  it("opens the daemon info from the footer icon", async () => {
+    const info = {
+      hello: '{ "protocolVersion": 1 }',
+      pid: 42,
+      executable: "/cc/bitplane-sessiond",
+      bundled: "/cc/bitplane-sessiond",
+      socket: "/run/sessiond.sock",
+      log: "/state/sessiond.log",
+    };
+    mockBackend({ daemon_info: () => info });
+    seed({ planes: planesModel([]) });
+    render(<Sidebar />);
+    await userEvent.click(screen.getByRole("button", { name: "Session daemon info" }));
+    expect(useStore.getState().dialog).toEqual({ kind: "daemonInfo", info });
+  });
+
   describe("context menu", () => {
     beforeEach(() => {
       menu.popup.mockClear();

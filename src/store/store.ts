@@ -9,6 +9,8 @@ import {
   type CreateEvent,
   type CreateInfo,
   commands,
+  type DaemonInfo,
+  type DaemonStatus,
   type Envelope,
   events,
   type FilesEvent,
@@ -59,7 +61,8 @@ export type Dialog =
   | { kind: "createLog"; planeId: string }
   | { kind: "confirmClose"; sessionId: number; processName: string }
   | { kind: "quit"; info: QuitInfo }
-  | { kind: "agentResume"; hooks: AgentHooks | null; error: string | null };
+  | { kind: "agentResume"; hooks: AgentHooks | null; error: string | null }
+  | { kind: "daemonInfo"; info: DaemonInfo | null };
 
 /** A Session tab by session id, or a File tab by its key within the plane. */
 export type TabId = number | FileTabKey;
@@ -92,6 +95,8 @@ export interface State {
   /** Planes showing the dismissible "Post-create script failed" banner. */
   scriptFailed: Record<string, true>;
   notice: string | null;
+  /** cc's connection to this host's session daemon. */
+  daemon: DaemonStatus;
   toolPanelOpen: boolean;
   /** The tool the panel shows when open; kept while it's collapsed. */
   activeTool: Tool;
@@ -136,6 +141,7 @@ export const initialState = (): State => ({
   fontSize: DEFAULT_FONT_SIZE,
   scriptFailed: {},
   notice: null,
+  daemon: { kind: "connecting" },
   toolPanelOpen: false,
   activeTool: "sourceControl",
   toolPanelWidth: DEFAULT_TOOL_PANEL_WIDTH,
@@ -183,8 +189,11 @@ export async function connect(onQuitRequested: () => void = requestQuit): Promis
     events.filesChanged.listen((e) => applyFilesChanged(e.payload)),
     events.fileTabsChanged.listen((e) => applyFileTabsChanged(e.payload)),
     events.quitRequested.listen(() => onQuitRequested()),
+    events.daemonChanged.listen((e) => set({ daemon: e.payload })),
   ]);
   loadSnapshot(await commands.snapshot());
+  const daemon = await commands.daemonStatus().catch(() => null);
+  if (daemon) set({ daemon });
   loadUiState(await commands.uiStateLoad().catch(() => null));
   const stopSaving = saveUiStateOnChange();
   const stopGitWatch = followGitWatch();
@@ -494,6 +503,17 @@ export function closeDialog(): void {
 
 export function dismissNotice(): void {
   set({ notice: null });
+}
+
+/** Open the daemon info: its process, paths and last `hello` reply. */
+export async function openDaemonInfo(): Promise<void> {
+  const info = await commands.daemonInfo().catch(() => null);
+  set({ dialog: { kind: "daemonInfo", info } });
+}
+
+/** Try reaching the session daemon again now, instead of after the backoff. */
+export async function retryDaemon(): Promise<void> {
+  await commands.daemonRetry();
 }
 
 /** Capture the environment again and re-read the plane list (also every Retry). */

@@ -37,3 +37,20 @@
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+
+.facts {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+}
+
+.facts > div {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
