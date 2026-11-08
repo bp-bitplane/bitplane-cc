@@ -9,6 +9,7 @@ import {
   type CreateEvent,
   type CreateInfo,
   commands,
+  type DaemonInfo,
   type DaemonStatus,
   type Envelope,
   events,
@@ -60,7 +61,8 @@ export type Dialog =
   | { kind: "createLog"; planeId: string }
   | { kind: "confirmClose"; sessionId: number; processName: string }
   | { kind: "quit"; info: QuitInfo }
-  | { kind: "agentResume"; hooks: AgentHooks | null; error: string | null };
+  | { kind: "agentResume"; hooks: AgentHooks | null; error: string | null }
+  | { kind: "daemonInfo"; info: DaemonInfo | null };
 
 /** A Session tab by session id, or a File tab by its key within the plane. */
 export type TabId = number | FileTabKey;
@@ -501,6 +503,12 @@ export function closeDialog(): void {
 
 export function dismissNotice(): void {
   set({ notice: null });
+}
+
+/** Open the daemon info: its process, paths and last `hello` reply. */
+export async function openDaemonInfo(): Promise<void> {
+  const info = await commands.daemonInfo().catch(() => null);
+  set({ dialog: { kind: "daemonInfo", info } });
 }
 
 /** Try reaching the session daemon again now, instead of after the backoff. */

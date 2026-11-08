@@ -37,7 +37,12 @@ async fn launching_starts_the_bundled_daemon() {
         unreachable!()
     };
     assert!(!restarted);
-    assert!(host.dirs.pidfile().exists());
+    let info = link.info();
+    let pid = std::fs::read_to_string(host.dirs.pidfile()).unwrap();
+    assert_eq!(info.pid, Some(pid.trim().parse().unwrap()));
+    let executable = std::fs::canonicalize(info.executable.unwrap()).unwrap();
+    assert_eq!(executable, std::fs::canonicalize(BUNDLED).unwrap());
+    assert!(info.hello.unwrap().contains("\"protocolVersion\": 1"));
 }
 
 #[tokio::test]
@@ -92,6 +97,8 @@ async fn an_unavailable_module_carries_its_reason() {
     let DaemonStatus::Connected { modules, .. } = status else {
         unreachable!()
     };
+    let hello = link.hello().unwrap();
+    assert_eq!(hello.capabilities[0].module, "plane");
     assert_eq!(
         modules,
         vec![ModuleStatus {

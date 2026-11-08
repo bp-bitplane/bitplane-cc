@@ -189,6 +189,23 @@
   opacity: 0.7;
 }
 
+.footerRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footerRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.footerRow > .iconButton {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
 .footer {
   padding: 10px 14px;
   font: 11px var(--mono);

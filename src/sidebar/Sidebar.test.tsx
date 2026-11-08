@@ -132,20 +132,20 @@ describe("Sidebar", () => {
     expect(screen.getByText("Couldn't read your shell environment")).toBeInTheDocument();
   });
 
-  it("shows the connected session daemon's version", () => {
-    mockBackend();
-    seed({
-      planes: planesModel([]),
-      daemon: {
-        kind: "connected",
-        version: "0.1.0",
-        instance: "i1",
-        restarted: false,
-        modules: [],
-      },
-    });
+  it("opens the daemon info from the footer icon", async () => {
+    const info = {
+      hello: '{ "protocolVersion": 1 }',
+      pid: 42,
+      executable: "/cc/bitplane-sessiond",
+      bundled: "/cc/bitplane-sessiond",
+      socket: "/run/sessiond.sock",
+      log: "/state/sessiond.log",
+    };
+    mockBackend({ daemon_info: () => info });
+    seed({ planes: planesModel([]) });
     render(<Sidebar />);
-    expect(screen.getByText("Session daemon 0.1.0")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Session daemon info" }));
+    expect(useStore.getState().dialog).toEqual({ kind: "daemonInfo", info });
   });
 
   describe("context menu", () => {

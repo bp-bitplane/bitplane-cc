@@ -1,5 +1,13 @@
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Plus, RefreshCw, X } from "lucide-react";
+import {
+  Bug,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Plus,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { PlaneRow } from "../ipc";
@@ -9,6 +17,7 @@ import {
   MAX_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
   openCreateDialog,
+  openDaemonInfo,
   openDuplicateDialog,
   refresh,
   requestCloseSession,
@@ -167,14 +176,17 @@ function Footer() {
   const planesDir = useStore((s) => s.planes.planesDir);
   const refreshedAt = useStore((s) => s.planes.refreshedAt);
   const envWarning = useStore((s) => s.planes.envWarning);
-  const daemon = useStore((s) => s.daemon);
   return (
     <footer className={styles.footer}>
       {envWarning && <div className={styles.envWarning}>{envWarning}</div>}
-      {daemon.kind === "connected" && <div>Session daemon {daemon.version}</div>}
-      <div title="Resolved planes directory">
-        {planesDir ?? "…"}
-        {refreshedAt !== null && <> · refreshed {new Date(refreshedAt).toLocaleTimeString()}</>}
+      <div className={styles.footerRow}>
+        <div title="Resolved planes directory">
+          {planesDir ?? "…"}
+          {refreshedAt !== null && <> · refreshed {new Date(refreshedAt).toLocaleTimeString()}</>}
+        </div>
+        <IconButton title="Session daemon info" onClick={() => void openDaemonInfo()}>
+          <Bug size={13} />
+        </IconButton>
       </div>
     </footer>
   );

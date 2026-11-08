@@ -16,7 +16,7 @@ use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_
 use crate::app::{App, PlanesModel, Snapshot};
 use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
-use crate::daemon::{DaemonLink, DaemonStatus};
+use crate::daemon::{DaemonInfo, DaemonLink, DaemonStatus};
 use crate::diff::{self, DiffMode, FileContents, FileDiff, FileText};
 use crate::editor;
 use crate::files::{self, FileEntry};
@@ -95,6 +95,7 @@ pub fn builder() -> Builder<Wry> {
             agent_hooks_install,
             daemon_status,
             daemon_retry,
+            daemon_info,
         ])
         .events(collect_events![
             PlanesChanged,
@@ -136,6 +137,12 @@ fn snapshot(app: State<'_, AppState>) -> Snapshot {
 #[specta::specta]
 fn daemon_status(daemon: State<'_, DaemonState>) -> DaemonStatus {
     daemon.status()
+}
+
+#[tauri::command]
+#[specta::specta]
+fn daemon_info(daemon: State<'_, DaemonState>) -> DaemonInfo {
+    daemon.info()
 }
 
 #[tauri::command]

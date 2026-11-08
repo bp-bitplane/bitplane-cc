@@ -52,6 +52,21 @@ pub struct ModuleStatus {
     pub reason: Option<String>,
 }
 
+/// Where the daemon runs, for the daemon info dialog.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DaemonInfo {
+    /// The last `hello` reply as pretty JSON; kept after a drop.
+    pub hello: Option<String>,
+    /// From the pidfile, which only the lock holder writes.
+    pub pid: Option<u32>,
+    /// The running daemon's executable, which may not be cc's bundled one.
+    pub executable: Option<String>,
+    pub bundled: String,
+    pub socket: Option<String>,
+    pub log: Option<String>,
+}
+
 pub type OnChange = Arc<dyn Fn(DaemonStatus) + Send + Sync>;
 
 pub struct DaemonLink {
@@ -59,6 +74,7 @@ pub struct DaemonLink {
     exe: PathBuf,
     status: Mutex<DaemonStatus>,
     handle: Mutex<Option<Handle>>,
+    hello: Mutex<Option<HelloResult>>,
     retry: Notify,
     on_change: OnChange,
 }
@@ -71,6 +87,7 @@ impl DaemonLink {
             exe,
             status: Mutex::new(DaemonStatus::Connecting),
             handle: Mutex::new(None),
+            hello: Mutex::new(None),
             retry: Notify::new(),
             on_change,
         })
@@ -91,6 +108,28 @@ impl DaemonLink {
         self.handle.lock().unwrap().clone()
     }
 
+    /// The last `hello` reply, as the daemon sent it; kept after a drop.
+    pub fn hello(&self) -> Option<HelloResult> {
+        self.hello.lock().unwrap().clone()
+    }
+
+    pub fn info(&self) -> DaemonInfo {
+        let dirs = self.dirs.as_ref().ok();
+        let pid = dirs
+            .and_then(|dirs| std::fs::read_to_string(dirs.pidfile()).ok())
+            .and_then(|pid| pid.trim().parse().ok());
+        DaemonInfo {
+            hello: self
+                .hello()
+                .and_then(|hello| serde_json::to_string_pretty(&hello).ok()),
+            pid,
+            executable: pid.and_then(executable_of),
+            bundled: self.exe.display().to_string(),
+            socket: dirs.map(|dirs| dirs.socket().display().to_string()),
+            log: dirs.map(|dirs| dirs.log().display().to_string()),
+        }
+    }
+
     /// Tries again at once instead of waiting out the backoff.
     pub fn retry(&self) {
         self.retry.notify_one();
@@ -107,6 +146,7 @@ impl DaemonLink {
                     previous = Some(instance);
                     delay = RETRY_MIN;
                     *self.handle.lock().unwrap() = Some(handle);
+                    *self.hello.lock().unwrap() = Some(hello.clone());
                     self.set_status(connected(hello, restarted));
                     while streams.next_event().await.is_some() {}
                     self.handle.lock().unwrap().take();
@@ -178,4 +218,18 @@ fn failed(message: &str, log: Option<String>) -> DaemonStatus {
         message: message.into(),
         log,
     }
+}
+
+#[cfg(target_os = "macos")]
+fn executable_of(pid: u32) -> Option<String> {
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: proc_pidpath writes at most `buf.len()` bytes into `buf`.
+    let len = unsafe { libc::proc_pidpath(pid as i32, buf.as_mut_ptr().cast(), buf.len() as u32) };
+    (len > 0).then(|| String::from_utf8_lossy(&buf[..len as usize]).into_owned())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn executable_of(pid: u32) -> Option<String> {
+    let path = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    Some(path.display().to_string())
 }
