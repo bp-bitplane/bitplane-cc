@@ -1,7 +1,7 @@
 import { CreatePlaneDialog } from "../create-plane/CreatePlaneDialog";
 import { Log } from "../create-plane/CreateProgress";
-import type { AgentHooks, DaemonInfo } from "../ipc";
-import { closeDialog, closeSession, installAgentHooks, useStore } from "../store/store";
+import type { DaemonInfo } from "../ipc";
+import { closeDialog, closeSession, useStore } from "../store/store";
 import styles from "./Dialogs.module.css";
 import { DialogActions, Modal } from "./Modal";
 import { Palette } from "./Palette";
@@ -47,8 +47,6 @@ export function Dialogs() {
           </div>
         </Modal>
       );
-    case "agentResume":
-      return <AgentResumeDialog hooks={dialog.hooks} error={dialog.error} />;
     case "daemonInfo":
       return <DaemonInfoDialog info={dialog.info} />;
     default:
@@ -106,38 +104,6 @@ function DaemonInfoDialog({ info }: { info: DaemonInfo | null }) {
           <button type="button" onClick={closeDialog}>
             Close
           </button>
-        </DialogActions>
-      </div>
-    </Modal>
-  );
-}
-
-function AgentResumeDialog({ hooks, error }: { hooks: AgentHooks | null; error: string | null }) {
-  const installed = hooks?.status === "installed";
-  return (
-    <Modal label="Enable agent resume" onClose={closeDialog} wide>
-      <div className={styles.body}>
-        <h3>Enable agent resume</h3>
-        {installed ? (
-          <p>Agent resume is already enabled.</p>
-        ) : (
-          <p>
-            Restore resumes the Claude Code sessions running in your tabs. These hooks get added to{" "}
-            <code>{hooks?.path ?? "~/.claude/settings.json"}</code>, next to the hooks already
-            there; outside this app they do nothing.
-          </p>
-        )}
-        {hooks && !installed && <pre className={styles.code}>{hooks.entries}</pre>}
-        {error && <p role="alert">{error}</p>}
-        <DialogActions>
-          <button type="button" onClick={closeDialog}>
-            {installed ? "Close" : "Cancel"}
-          </button>
-          {hooks && !installed && (
-            <button type="button" className="primary" onClick={() => void installAgentHooks()}>
-              {hooks.status === "outdated" ? "Update hooks" : "Add hooks"}
-            </button>
-          )}
         </DialogActions>
       </div>
     </Modal>

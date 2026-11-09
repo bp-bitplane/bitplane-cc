@@ -111,3 +111,38 @@
   border: 1px solid var(--accent);
   border-radius: 3px;
 }
+
+.agent {
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--dim);
+}
+
+.agent[data-state="busy"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.agent[data-state="waiting"] {
+  border-color: var(--warn);
+  background: var(--warn);
+}
+
+.agent[data-state="resuming"] {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+
+.agent[data-state="exited"] {
+  border-color: var(--faint);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}

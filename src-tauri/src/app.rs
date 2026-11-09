@@ -1,8 +1,7 @@
 //! The backend's state, owned in one place: the plane list and what it's
-//! built from, the session tabs mirrored from the daemon (ADR 0028) and the
-//! create registry.
+//! built from, the session tabs and agents mirrored from the daemon (ADR 0028)
+//! and the create registry.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -11,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::Notify;
 
+use crate::agents::{AgentEvent, AgentInfo, Agents};
 use crate::bp::{self, Bp, BpError, VersionError};
 use crate::create::{CreateEvent, CreateInfo, CreateStatus, Creates};
 use crate::daemon::DaemonLink;
@@ -18,6 +18,7 @@ use crate::env::{self, CapturedEnv, EnvMap};
 use crate::files_watch::{self, FilesEvent, FilesWatch};
 use crate::git;
 use crate::git_watch::{FileTabsEvent, GitTarget, GitWatch, Scope, SourceControlEvent};
+use crate::migrate::{self, Legacy};
 use crate::persist;
 use crate::planes::{self, PlaneKind, PlaneRow, Source, Watcher};
 use crate::sessions::{SessionConfig, SessionEvent, SessionInfo, Sessions};
@@ -25,6 +26,10 @@ use crate::sessions::{SessionConfig, SessionEvent, SessionInfo, Sessions};
 /// How long `snapshot` waits for the daemon's session list, so the UI state
 /// it restores finds its tabs.
 const SESSIONS_READY: Duration = Duration::from_secs(3);
+
+/// How long the legacy import waits for the daemon; the import runs again on
+/// the next launch if it never answered.
+const IMPORT_READY: Duration = Duration::from_secs(30);
 
 /// Whether the app can talk to bp, and if not, why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -74,6 +79,7 @@ pub struct PlanesModel {
 pub struct Snapshot {
     pub planes: PlanesModel,
     pub sessions: Vec<SessionInfo>,
+    pub agents: Vec<AgentInfo>,
     pub creates: Vec<CreateInfo>,
 }
 
@@ -82,18 +88,17 @@ pub struct Snapshot {
 pub struct DataDir(pub PathBuf);
 
 impl DataDir {
-    /// What cc restored before the daemon owned sessions, kept for the
-    /// Agents section to import (ADR 0028).
-    pub fn sessions(&self) -> PathBuf {
-        self.0.join("sessions.json")
-    }
-
     pub fn ui_state(&self) -> PathBuf {
         self.0.join("ui-state.json")
     }
 
-    pub fn agents(&self) -> PathBuf {
-        self.0.join("agents")
+    /// What cc restored itself before the daemon owned sessions (ADR 0028).
+    pub fn legacy(&self, home: Option<&Path>) -> Legacy {
+        Legacy {
+            sessions: self.0.join("sessions.json"),
+            agents: self.0.join("agents"),
+            claude_settings: home.map(|home| home.join(".claude").join("settings.json")),
+        }
     }
 }
 
@@ -103,6 +108,7 @@ pub type EmitPlanes = Arc<dyn Fn(PlanesModel) + Send + Sync>;
 pub struct Emitters {
     pub planes: EmitPlanes,
     pub session: Arc<dyn Fn(SessionEvent) + Send + Sync>,
+    pub agent: Arc<dyn Fn(AgentEvent) + Send + Sync>,
     pub create: Arc<dyn Fn(CreateEvent) + Send + Sync>,
     pub source_control: Arc<dyn Fn(SourceControlEvent) + Send + Sync>,
     pub files: Arc<dyn Fn(FilesEvent) + Send + Sync>,
@@ -113,6 +119,7 @@ pub struct App {
     original_env: EnvMap,
     data_dir: Option<DataDir>,
     pub sessions: Arc<Sessions>,
+    pub agents: Arc<Agents>,
     pub creates: Arc<Creates>,
     state: Mutex<State>,
     watcher: Mutex<Option<Watcher>>,
@@ -161,13 +168,10 @@ impl App {
 
         let app = Arc::clone(&this);
         let emit_session = emitters.session;
-        let agents_dir = data_dir.as_ref().map(DataDir::agents);
         let sessions = Sessions::new(
             daemon,
             SessionConfig {
                 shell_name: env::shell_name(&shell),
-                env: agent_env(agents_dir.as_deref()),
-                agents_dir,
             },
             Arc::new(move |event| {
                 emit_session(event);
@@ -176,6 +180,8 @@ impl App {
                 }
             }),
         );
+
+        let agents = Agents::new(daemon, emitters.agent);
 
         let app = Arc::clone(&this);
         let emit_create = emitters.create;
@@ -197,6 +203,7 @@ impl App {
             original_env,
             data_dir,
             sessions,
+            agents,
             creates,
             state: Mutex::new(State::default()),
             watcher: Mutex::new(None),
@@ -225,6 +232,14 @@ impl App {
             return Ok(());
         };
         persist::write_atomic(&dir.ui_state(), json.as_bytes()).map_err(|e| e.to_string())
+    }
+
+    /// Import the tabs and agent links cc kept before the daemon, once the
+    /// daemon's own sessions are mirrored.
+    pub async fn import_legacy(&self) {
+        let Some(dir) = &self.data_dir else { return };
+        self.sessions.ready(IMPORT_READY).await;
+        migrate::import(&dir.legacy(self.home().as_deref()), &self.sessions).await;
     }
 
     pub fn home(&self) -> Option<PathBuf> {
@@ -469,6 +484,7 @@ impl App {
                 planes: Vec::new(),
             }),
             sessions: self.sessions.list(),
+            agents: self.agents.list(),
             creates: self.creates.list(),
         }
     }
@@ -552,21 +568,6 @@ impl App {
     }
 }
 
-/// What the agent hooks read to write agent links into cc's data dir, which
-/// the Agents section imports into the daemon (ADR 0028).
-fn agent_env(agents_dir: Option<&Path>) -> BTreeMap<String, String> {
-    let Some(dir) = agents_dir else {
-        return BTreeMap::new();
-    };
-    if let Err(error) = std::fs::create_dir_all(dir) {
-        eprintln!("bitplane-cc: couldn't create {}: {error}", dir.display());
-    }
-    BTreeMap::from([
-        ("BITPLANE_CC_AGENTS".into(), dir.display().to_string()),
-        ("BITPLANE_CC_PID".into(), std::process::id().to_string()),
-    ])
-}
-
 /// Find bp on the captured `PATH` and check its version.
 async fn discover_bp(captured: &CapturedEnv) -> (Option<Bp>, Option<String>, Option<AppStatus>) {
     let Some(program) = bp::find_on_path("bp", captured.vars.get("PATH").map(String::as_str))
@@ -641,6 +642,7 @@ mod tests {
             Emitters {
                 planes: Arc::new(|_| {}),
                 session: Arc::new(|_| {}),
+                agent: Arc::new(|_| {}),
                 create: Arc::new(|_| {}),
                 source_control: Arc::new(|_| {}),
                 files: Arc::new(|_| {}),

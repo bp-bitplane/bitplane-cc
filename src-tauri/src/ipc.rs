@@ -13,6 +13,7 @@ use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
 use tauri::{State, Wry};
 use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_events};
 
+use crate::agents::AgentEvent;
 use crate::app::{App, PlanesModel, Snapshot};
 use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
@@ -23,9 +24,11 @@ use crate::files::{self, FileEntry};
 use crate::files_watch::FilesEvent;
 use crate::git::{self, Repo};
 use crate::git_watch::{FileTabsEvent, GitTarget, SourceControlEvent};
-use crate::hooks::{self, AgentHooks};
 use crate::planes;
-use crate::sessions::{BusyInfo, OutputSink, SessionError, SessionEvent, SessionId, SessionInfo};
+use crate::sessions::{
+    AgentOpen, BusyInfo, OpenOptions, OutputSink, SessionError, SessionEvent, SessionId,
+    SessionInfo,
+};
 
 pub type AppState = Arc<App>;
 pub type DaemonState = Arc<DaemonLink>;
@@ -38,6 +41,9 @@ pub struct PlanesChanged(pub PlanesModel);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct SessionChanged(pub SessionEvent);
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+pub struct AgentChanged(pub AgentEvent);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct CreateChanged(pub CreateEvent);
@@ -83,8 +89,6 @@ pub fn builder() -> Builder<Wry> {
             project_list,
             ui_state_load,
             ui_state_save,
-            agent_hooks_describe,
-            agent_hooks_install,
             daemon_status,
             daemon_retry,
             daemon_info,
@@ -92,6 +96,7 @@ pub fn builder() -> Builder<Wry> {
         .events(collect_events![
             PlanesChanged,
             SessionChanged,
+            AgentChanged,
             CreateChanged,
             SourceControlChanged,
             FilesChanged,
@@ -149,21 +154,50 @@ async fn refresh(app: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Open a session in a plane's root. A missing root opens nothing and
-/// refreshes the list, which marks the plane gone.
+/// Open a session in a plane's root: an agent terminal running `agent`, or
+/// without it a regular terminal. A missing root opens nothing and refreshes
+/// the list, which marks the plane gone.
 #[tauri::command]
 #[specta::specta]
-async fn session_open(app: State<'_, AppState>, plane_id: String) -> Result<SessionInfo, String> {
-    let dir = app.plane_dir(&plane_id)?;
-    let result = app.sessions.open(&plane_id, &dir).await;
-    refresh_if_gone(&app, result).await
+async fn session_open(
+    app: State<'_, AppState>,
+    plane_id: String,
+    agent: Option<AgentOpen>,
+) -> Result<SessionInfo, OpenError> {
+    let dir = app
+        .plane_dir(&plane_id)
+        .map_err(|message| OpenError::Other { message })?;
+    let options = OpenOptions { name: None, agent };
+    let result = app.sessions.open(&plane_id, &dir, options).await;
+    refresh_if_gone(&app, result).await.map_err(OpenError::from)
+}
+
+/// Why `session_open` failed; `agentLive` when the agent session to resume
+/// already runs in another session.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "code", rename_all = "camelCase")]
+pub enum OpenError {
+    AgentLive { message: String },
+    Other { message: String },
+}
+
+impl From<SessionError> for OpenError {
+    fn from(error: SessionError) -> Self {
+        let message = error.to_string();
+        match error {
+            SessionError::AgentLive => OpenError::AgentLive { message },
+            _ => OpenError::Other { message },
+        }
+    }
 }
 
 #[tauri::command]
 #[specta::specta]
 async fn session_restart(app: State<'_, AppState>, id: SessionId) -> Result<SessionInfo, String> {
     let result = app.sessions.restart(id).await;
-    refresh_if_gone(&app, result).await
+    refresh_if_gone(&app, result)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Closes the session for every client of the daemon.
@@ -347,24 +381,6 @@ fn ui_state_save(app: State<'_, AppState>, json: String) -> Result<(), String> {
     app.ui_state_save(&json)
 }
 
-#[tauri::command]
-#[specta::specta]
-fn agent_hooks_describe(app: State<'_, AppState>) -> Result<AgentHooks, String> {
-    hooks::describe(&agent_settings(&app)?)
-}
-
-#[tauri::command]
-#[specta::specta]
-fn agent_hooks_install(app: State<'_, AppState>) -> Result<(), String> {
-    hooks::install(&agent_settings(&app)?)
-}
-
-fn agent_settings(app: &App) -> Result<std::path::PathBuf, String> {
-    app.home()
-        .map(|home| hooks::settings_path(&home))
-        .ok_or_else(|| "HOME isn't set".into())
-}
-
 /// Input: the raw body, with the session id in a header.
 #[tauri::command]
 fn pty_write(app: State<'_, AppState>, request: Request<'_>) -> Result<(), String> {
@@ -404,11 +420,11 @@ fn session_attach(
 async fn refresh_if_gone(
     app: &App,
     result: Result<SessionInfo, SessionError>,
-) -> Result<SessionInfo, String> {
+) -> Result<SessionInfo, SessionError> {
     if let Err(SessionError::RootMissing(_)) = &result {
         app.refresh_list().await;
     }
-    result.map_err(|e| e.to_string())
+    result
 }
 
 struct ChannelSink(Channel<InvokeResponseBody>);

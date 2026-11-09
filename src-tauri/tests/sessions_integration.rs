@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use bitplane_cc_lib::daemon::{DaemonLink, DaemonStatus};
 use bitplane_cc_lib::sessions::{
-    FRAME_OUTPUT, FRAME_SNAPSHOT, OutputSink, SessionConfig, SessionError, SessionEvent, SessionId,
-    SessionInfo, SessionStatus, Sessions,
+    FRAME_OUTPUT, FRAME_SNAPSHOT, OpenOptions, OutputSink, SessionConfig, SessionError,
+    SessionEvent, SessionId, SessionInfo, SessionStatus, Sessions,
 };
 use bitplane_sessiond::client::Client;
 use bitplane_sessiond::env::EnvMap;
@@ -28,7 +28,11 @@ async fn a_tab_types_into_its_daemon_session() {
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
 
-    let info = cc.sessions.open("demo", &host.plane).await.unwrap();
+    let info = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
     let screen = cc.attach(info.id);
     cc.sessions
         .write(info.id, b"echo \"plane=$BITPLANE_PLANE_ID\" $((6*7))\r")
@@ -45,7 +49,11 @@ async fn a_reload_reattaches_with_a_snapshot_of_the_scrollback() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let info = cc.sessions.open("demo", &host.plane).await.unwrap();
+    let info = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
     let before = cc.attach(info.id);
     cc.sessions
         .write(info.id, b"for i in 1 2 3; do echo line-$i-$((i*7)); done\r")
@@ -99,7 +107,11 @@ async fn a_rename_names_the_tab_apart_from_the_program_title() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let info = cc.sessions.open("demo", &host.plane).await.unwrap();
+    let info = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
     let _screen = cc.attach(info.id);
 
     let renamed = cc
@@ -129,7 +141,11 @@ async fn a_clean_exit_closes_the_tab() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let info = cc.sessions.open("demo", &host.plane).await.unwrap();
+    let info = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
     let _screen = cc.attach(info.id);
 
     cc.sessions.write(info.id, b"exit 0\r").unwrap();
@@ -154,7 +170,11 @@ async fn a_failed_exit_keeps_the_tab_and_restart_starts_it_over() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let info = cc.sessions.open("demo", &host.plane).await.unwrap();
+    let info = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
     let screen = cc.attach(info.id);
     cc.sessions
         .write(info.id, b"echo old-$((6*7)); exit 3\r")
@@ -180,7 +200,11 @@ async fn busy_names_the_foreground_program() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let info = cc.sessions.open("demo", &host.plane).await.unwrap();
+    let info = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
     let screen = cc.attach(info.id);
     cc.sessions
         .write(info.id, b"echo ready-$((6*7))\r")
@@ -207,7 +231,11 @@ async fn a_gone_root_is_shown_and_cannot_restart() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let info = cc.sessions.open("demo", &host.plane).await.unwrap();
+    let info = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
     let _screen = cc.attach(info.id);
     cc.sessions.write(info.id, b"exit 4\r").unwrap();
     cc.wait_until("the shell exited", |tabs| {
@@ -224,7 +252,9 @@ async fn a_gone_root_is_shown_and_cannot_restart() {
         Err(SessionError::RootMissing(host.plane.clone()))
     );
     assert_eq!(
-        cc.sessions.open("demo", &host.plane).await,
+        cc.sessions
+            .open("demo", &host.plane, OpenOptions::default())
+            .await,
         Err(SessionError::RootMissing(host.plane.clone()))
     );
     assert_eq!(cc.sessions.plane_sources()[0].directory, host.plane);
@@ -235,8 +265,16 @@ async fn a_new_daemon_instance_brings_the_tabs_back_as_fresh_shells() {
     let host = Host::new();
     let first = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let a = cc.sessions.open("demo", &host.plane).await.unwrap();
-    let b = cc.sessions.open("demo", &host.plane).await.unwrap();
+    let a = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
+    let b = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
     let screen = cc.attach(b.id);
     cc.sessions.write(b.id, b"echo first-$((6*7))\r").unwrap();
     screen.wait_for("first-42").await;
@@ -277,7 +315,11 @@ async fn output_waits_for_the_webviews_acks() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let info = cc.sessions.open("demo", &host.plane).await.unwrap();
+    let info = cc
+        .sessions
+        .open("demo", &host.plane, OpenOptions::default())
+        .await
+        .unwrap();
     let screen = cc.attach(info.id);
     cc.sessions
         .write(info.id, b"echo ready-$((6*7))\r")
