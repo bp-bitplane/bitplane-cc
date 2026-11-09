@@ -1,4 +1,4 @@
-import type { PlaneRow, SessionInfo } from "../ipc";
+import type { AgentInfo, PlaneRow, SessionInfo } from "../ipc";
 import { type FileTab, fileTabKey } from "../tabs/fileTabs";
 import type { State, TabId } from "./store";
 
@@ -54,6 +54,59 @@ export function activeFileTab(state: Tabs, planeId: string | null): FileTab | un
 /** The plane tools show: the active tab's, else the Sidebar selection's. */
 export function shownPlaneId(state: Tabs & Pick<State, "selectedPlaneId">) {
   return activeSession(state, state.selectedPlaneId)?.planeId ?? state.selectedPlaneId;
+}
+
+/** The tab's agent: the one running in it, else the last one that did. */
+export function agentOf(state: Pick<State, "agents">, session: SessionInfo): AgentInfo | undefined {
+  const agents = Object.values(state.agents).filter((a) => a.session === session.key);
+  return agents.find((a) => a.state.kind !== "exited") ?? agents[0];
+}
+
+/** The tab a live agent session runs in. */
+export function sessionOfAgent(
+  state: Pick<State, "agents" | "sessions">,
+  agentSession: string,
+): SessionInfo | undefined {
+  const agent = state.agents[agentSession];
+  if (!agent || agent.state.kind === "exited" || agent.session === null) return undefined;
+  return Object.values(state.sessions).find((s) => s.key === agent.session);
+}
+
+/** Agents that ran here and can be resumed, each with the plane its cwd is in. */
+export function resumableAgents(
+  state: Pick<State, "agents" | "planes">,
+): { agent: AgentInfo; planeId: string }[] {
+  return Object.values(state.agents).flatMap((agent) => {
+    if (agent.state.kind !== "exited") return [];
+    const plane = state.planes.planes.find(
+      (p) =>
+        (p.kind === "plane" || p.kind === "draft") &&
+        (agent.cwd === p.directory || agent.cwd.startsWith(`${p.directory}/`)),
+    );
+    return plane ? [{ agent, planeId: plane.id }] : [];
+  });
+}
+
+/** What a tab's agent is doing, in words; `null` for a state this build doesn't know. */
+export function agentStateLabel(agent: AgentInfo): string | null {
+  switch (agent.state.kind) {
+    case "idle":
+      return "idle";
+    case "busy":
+      return "busy";
+    case "waiting":
+      return agent.state.reason === "permission"
+        ? "waiting for permission"
+        : agent.state.reason === "input"
+          ? "waiting for input"
+          : "waiting";
+    case "resuming":
+      return "resuming";
+    case "exited":
+      return "exited";
+    default:
+      return null;
+  }
 }
 
 /** `N · title`, N being the tab's position (spec §4.2). */

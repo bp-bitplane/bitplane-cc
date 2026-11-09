@@ -26,18 +26,6 @@
   height: 50vh;
 }
 
-.code {
-  max-height: 40vh;
-  overflow: auto;
-  margin: 8px 0;
-  padding: 8px;
-  font: 12px / 1.45 var(--mono);
-  white-space: pre;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-}
-
 .facts {
   display: grid;
   gap: 4px;

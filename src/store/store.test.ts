@@ -1,5 +1,6 @@
 import { emit } from "@tauri-apps/api/event";
 import {
+  agent,
   createInfo,
   flush,
   mockBackend,
@@ -28,6 +29,7 @@ import {
   pinFileTab,
   renameSession,
   requestCloseSession,
+  resumeAgent,
   selectPlane,
   selectSession,
   useStore,
@@ -43,7 +45,7 @@ describe("selecting planes", () => {
     seed({ planes: planesModel([plane("alpha")]) });
     selectPlane("alpha");
     await flush();
-    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "alpha" });
+    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "alpha", resume: null });
     expect(state().selectedPlaneId).toBe("alpha");
     expect(state().activeTab.alpha).toBe(7);
     expect(state().sessions[7]).toBeDefined();
@@ -503,7 +505,7 @@ it("zooms within bounds and resets to 12 px", () => {
 describe("the session daemon", () => {
   it("loads its status on connect and follows changes", async () => {
     mockBackend({
-      snapshot: () => ({ planes: planesModel([]), sessions: [], creates: [] }),
+      snapshot: () => ({ planes: planesModel([]), sessions: [], agents: [], creates: [] }),
       daemon_status: () => ({ kind: "failed", message: "timed out", log: "/s/sessiond.log" }),
     });
     const stop = await connect();
@@ -524,5 +526,73 @@ describe("the session daemon", () => {
     await flush();
     expect(state().daemon).toEqual(connected);
     stop();
+  });
+});
+
+describe("agents", () => {
+  it("loads them with the snapshot and follows their changes", async () => {
+    mockBackend({
+      snapshot: () => ({
+        planes: planesModel([]),
+        sessions: [],
+        agents: [agent("a1", "key-1")],
+        creates: [],
+      }),
+    });
+    const stop = await connect();
+    expect(state().agents.a1?.state).toEqual({ kind: "idle" });
+
+    await emit("agent-changed", {
+      agentSession: "a1",
+      agent: agent("a1", "key-1", { state: { kind: "busy" } }),
+    });
+    await flush();
+    expect(state().agents.a1?.state).toEqual({ kind: "busy" });
+    await emit("agent-changed", { agentSession: "a1", agent: null });
+    await flush();
+    expect(state().agents).toEqual({});
+    stop();
+  });
+
+  it("resumes an agent session in a new session of its plane", async () => {
+    const backend = mockBackend({ session_open: () => session(3, "alpha") });
+    seed({
+      planes: planesModel([plane("alpha")]),
+      agents: { a1: agent("a1", null, { state: { kind: "exited" } }) },
+    });
+    await resumeAgent("a1", "alpha");
+    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "alpha", resume: "a1" });
+    expect(state().activeTab.alpha).toBe(3);
+  });
+
+  it("shows the tab of an agent session that is already running", async () => {
+    const backend = mockBackend();
+    seed({
+      planes: planesModel([plane("alpha"), plane("beta")]),
+      sessions: sessionsById(session(1, "alpha"), session(2, "beta")),
+      agents: { a1: agent("a1", "key-2", { state: { kind: "busy" } }) },
+      selectedPlaneId: "alpha",
+    });
+    await resumeAgent("a1", "alpha");
+    expect(backend.called("session_open")).toHaveLength(0);
+    expect(state().selectedPlaneId).toBe("beta");
+    expect(state().activeTab.beta).toBe(2);
+  });
+
+  it("shows where it runs when the daemon refuses a second resume", async () => {
+    mockBackend({
+      session_open: () => {
+        useStore.setState({ agents: { a1: agent("a1", "key-2", { state: { kind: "busy" } }) } });
+        throw "that agent session is already running in another session";
+      },
+    });
+    seed({
+      planes: planesModel([plane("alpha"), plane("beta")]),
+      sessions: sessionsById(session(1, "alpha"), session(2, "beta")),
+      agents: { a1: agent("a1", null, { state: { kind: "exited" } }) },
+    });
+    await resumeAgent("a1", "alpha");
+    expect(state().activeTab.beta).toBe(2);
+    expect(state().notice).toBe("That agent session is already running in this tab.");
   });
 });

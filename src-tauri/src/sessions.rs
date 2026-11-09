@@ -20,7 +20,6 @@ use serde_json::Value;
 use specta::Type;
 use tokio::sync::watch;
 
-use crate::agents;
 use crate::daemon::{DaemonLink, Subscriber};
 use crate::planes::Source;
 
@@ -92,10 +91,15 @@ pub type EmitSession = Arc<dyn Fn(SessionEvent) + Send + Sync>;
 #[derive(Debug, Clone, Default)]
 pub struct SessionConfig {
     pub shell_name: String,
-    /// Set in every shell cc opens, on top of the daemon's environment.
-    pub env: BTreeMap<String, String>,
-    /// Where the agent hooks write agent links; a closed session's is removed.
-    pub agents_dir: Option<PathBuf>,
+}
+
+/// What a new session starts with besides its plane.
+#[derive(Debug, Clone, Default)]
+pub struct OpenOptions {
+    /// The tab's name, as `session.rename` would set it.
+    pub name: Option<String>,
+    /// The agent session the shell resumes.
+    pub resume: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +107,8 @@ pub enum SessionError {
     NotFound(SessionId),
     /// The plane root is gone; nothing was started.
     RootMissing(PathBuf),
+    /// The agent session to resume already runs in another session.
+    AgentLive,
     Daemon(String),
 }
 
@@ -112,6 +118,9 @@ impl std::fmt::Display for SessionError {
             SessionError::NotFound(id) => write!(f, "there is no session {id}"),
             SessionError::RootMissing(dir) => {
                 write!(f, "the plane root {} no longer exists", dir.display())
+            }
+            SessionError::AgentLive => {
+                f.write_str("that agent session is already running in another session")
             }
             SessionError::Daemon(message) => f.write_str(message),
         }
@@ -217,18 +226,26 @@ impl Sessions {
         &self,
         plane_id: &str,
         plane_dir: &Path,
+        options: OpenOptions,
     ) -> Result<SessionInfo, SessionError> {
         if !plane_dir.is_dir() {
             return Err(SessionError::RootMissing(plane_dir.into()));
         }
         let params = SessionOpenParams {
             root: plane_dir.display().to_string(),
-            env: (!self.config.env.is_empty()).then(|| self.config.env.clone()),
+            env: None,
             plane: Some(plane_id.into()),
-            name: None,
+            name: options.name.filter(|name| !name.trim().is_empty()),
+            resume: options.resume,
         };
-        let SessionResult { session } = self.call(method::SESSION_OPEN, params).await?;
-        Ok(self.mirror(session))
+        match self.call(method::SESSION_OPEN, params).await {
+            Ok(SessionResult { session }) => Ok(self.mirror(session)),
+            Err(Failure::Rpc(ErrorCode::AgentLive, _)) => Err(SessionError::AgentLive),
+            Err(Failure::Rpc(ErrorCode::NotFound, _)) => {
+                Err(SessionError::RootMissing(plane_dir.into()))
+            }
+            Err(failure) => Err(failure.into()),
+        }
     }
 
     /// A fresh shell under the same tab; its terminal starts over.
@@ -448,11 +465,6 @@ impl Sessions {
 
     fn forget(&self, key: &str) {
         let event = remove(&mut self.state.lock().unwrap(), key);
-        if event.is_some()
-            && let Some(dir) = &self.config.agents_dir
-        {
-            agents::remove(dir, key);
-        }
         self.emit_all(event);
     }
 

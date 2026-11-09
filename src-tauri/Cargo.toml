@@ -26,9 +26,9 @@ notify-debouncer-mini = "0.7"
 tokio = { version = "1", features = ["process", "time", "sync", "macros", "rt-multi-thread", "io-util"] }
 libc = "0.2"
 toml = "1"
-bitplane-protocol = { git = "https://github.com/bp-bitplane/bitplane-protocol", rev = "d2b9974dd8857c4d6952cee3352a1d3e40ec6426" }
+bitplane-protocol = { git = "https://github.com/bp-bitplane/bitplane-protocol", rev = "8eadd3a476fe8401fbd67e5db9869741e95d93db" }
 # Also the rev scripts/build-sidecar.sh bundles, so cc's client and its daemon match.
-bitplane-sessiond = { git = "https://github.com/bp-bitplane/bitplane-sessiond", rev = "75463a749b7cca71d674e9058f4cd54ee2df2595" }
+bitplane-sessiond = { git = "https://github.com/bp-bitplane/bitplane-sessiond", rev = "d7eebe0233ff01faaa5b62681de47acd2fe96aad" }
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,188 +1,276 @@
-//! Agent links (ADR 0005): files the Claude Code hooks in `hooks.rs` write to
-//! `<agents dir>/<session key>.json`, holding the hook's stdin, next to a
-//! `.pid` naming the claude process that owns the link.
+//! The Claude Code agents in this host's sessions (ADR 0028), mirrored from
+//! the daemon's `agent.claude.list` and its events. A tab finds its agent by
+//! the session id, its `key`.
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, HashSet};
+use std::sync::{Arc, Mutex, Weak};
 
-use serde::Deserialize;
+use bitplane_protocol::agent::{self as wire, AgentListResult, AgentRef, AgentResult, Tracking};
+use bitplane_protocol::{Frame, Notification, method};
+use bitplane_sessiond::client::Handle;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use specta::Type;
 
-/// Present while the app quits, so `SessionEnd` hooks fired by the hang-up
-/// keep their links.
-pub const QUITTING_MARKER: &str = ".quitting";
+use crate::daemon::{DaemonLink, Subscriber};
 
-/// Set by a Claude Code session for its children. Launched from inside one,
-/// the app must not hand them to its tabs: a claude seeing them takes itself
-/// for a child session and saves no conversation, so there's nothing to resume.
-/// User settings such as `CLAUDE_CONFIG_DIR` are deliberately not listed.
-pub const PARENT_SESSION_VARS: &[&str] = &[
-    "AI_AGENT",
-    "CLAUDECODE",
-    "CLAUDE_AGENT_SDK_VERSION",
-    "CLAUDE_CODE_CHILD_SESSION",
-    "CLAUDE_CODE_ENTRYPOINT",
-    "CLAUDE_CODE_EXECPATH",
-    "CLAUDE_CODE_MESSAGING_SOCKET",
-    "CLAUDE_CODE_MESSAGING_TOKEN",
-    "CLAUDE_CODE_SESSION_ATTENDED",
-    "CLAUDE_CODE_SESSION_ID",
-    "CLAUDE_EFFORT",
-    "CLAUDE_PID",
-];
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentLink {
-    pub session_id: String,
-    /// Where the agent session started; `claude --resume` only finds it there.
-    pub cwd: PathBuf,
-    /// A turn was in flight when the last hook ran.
-    pub working: bool,
+/// One agent, as the frontend sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentInfo {
+    /// Claude Code's own session id; what a resume names.
+    pub agent_session: String,
+    /// The daemon session it runs in, a tab's `key`; `None` once that closed.
+    pub session: Option<String>,
+    /// Where the agent session started; it resumes only there.
+    pub cwd: String,
+    pub name: Option<String>,
+    pub state: AgentState,
+    /// Why the last turn failed; the daemon clears it on the next prompt.
+    pub last_error: Option<AgentError>,
+    /// The agent's hooks didn't load, so its state comes from a poll and lags.
+    pub polled: bool,
 }
 
-impl AgentLink {
-    /// What restore types into the fresh shell.
-    pub fn resume_command(&self) -> String {
-        format!("claude --resume {}\r", self.session_id)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AgentState {
+    Idle,
+    Busy,
+    Waiting {
+        reason: WaitingReason,
+    },
+    Resuming,
+    Exited,
+    /// A state this build doesn't know, from a newer daemon.
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum WaitingReason {
+    Permission,
+    Input,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentError {
+    /// Claude Code's error type, such as `rate_limit`.
+    pub error: String,
+    pub message: Option<String>,
+}
+
+/// `agent_changed`: one agent, or `None` once the daemon dropped it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEvent {
+    pub agent_session: String,
+    pub agent: Option<AgentInfo>,
+}
+
+pub type EmitAgent = Arc<dyn Fn(AgentEvent) + Send + Sync>;
+
+pub struct Agents {
+    me: Weak<Agents>,
+    emit: EmitAgent,
+    state: Mutex<State>,
+}
+
+#[derive(Default)]
+struct State {
+    agents: BTreeMap<String, AgentInfo>,
+    /// Counts connections; a list from an older one is dropped.
+    connection: u64,
+    /// While an `agent.claude.list` is in flight: the agents the events
+    /// touched meanwhile, which are newer than the list.
+    listing: Option<HashSet<String>>,
+}
+
+impl Agents {
+    /// Follows `link` from its next connection on.
+    pub fn new(link: &DaemonLink, emit: EmitAgent) -> Arc<Self> {
+        let agents = Arc::new_cyclic(|me| Agents {
+            me: me.clone(),
+            emit,
+            state: Mutex::default(),
+        });
+        link.subscribe(Arc::new(Subscription(Arc::downgrade(&agents))));
+        agents
     }
 
-    /// Restore resumes only from a directory that still exists inside the
-    /// plane; quitting must agree, or it would skip asking for nothing.
-    pub fn resumable_in(&self, plane_dir: &Path) -> bool {
-        match (self.cwd.canonicalize(), plane_dir.canonicalize()) {
-            (Ok(cwd), Ok(root)) => cwd.is_dir() && cwd.starts_with(root),
-            _ => false,
-        }
+    pub fn list(&self) -> Vec<AgentInfo> {
+        self.state
+            .lock()
+            .unwrap()
+            .agents
+            .values()
+            .cloned()
+            .collect()
     }
-}
 
-pub fn read(dir: &Path, key: &str) -> Option<AgentLink> {
-    let text = std::fs::read_to_string(link_path(dir, key)?).ok()?;
-    parse(&text)
-}
-
-pub fn remove(dir: &Path, key: &str) {
-    if let Some(path) = link_path(dir, key) {
-        let _ = std::fs::remove_file(path.with_extension("pid"));
-        let _ = std::fs::remove_file(path);
-    }
-}
-
-/// Delete links of sessions that weren't restored, and a stale quit marker.
-pub fn sweep(dir: &Path, keep: &HashSet<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        let stale = match name
-            .strip_suffix(".json")
-            .or_else(|| name.strip_suffix(".pid"))
-        {
-            Some(key) => !keep.contains(key),
-            None => name == QUITTING_MARKER || name.ends_with(".json.tmp"),
+    fn connected(&self, handle: Handle) {
+        let connection = {
+            let mut state = self.state.lock().unwrap();
+            state.connection += 1;
+            state.listing = Some(HashSet::new());
+            state.connection
         };
-        if stale {
-            let _ = std::fs::remove_file(entry.path());
+        let me = self.me.clone();
+        tauri::async_runtime::spawn(async move {
+            let listed = handle.call(method::AGENT_CLAUDE_LIST, None).await;
+            // An unavailable module lists nothing.
+            let listed = listed
+                .ok()
+                .and_then(|value| serde_json::from_value::<AgentListResult>(value).ok())
+                .map_or_else(Vec::new, |result| result.agents);
+            if let Some(agents) = me.upgrade() {
+                agents.resync(connection, listed);
+            }
+        });
+    }
+
+    fn resync(&self, connection: u64, listed: Vec<wire::Agent>) {
+        let mut events = Vec::new();
+        {
+            let mut state = self.state.lock().unwrap();
+            if state.connection != connection {
+                return;
+            }
+            let touched = state.listing.take().unwrap_or_default();
+            let listed: BTreeMap<String, AgentInfo> = listed
+                .into_iter()
+                .map(info)
+                .map(|agent| (agent.agent_session.clone(), agent))
+                .collect();
+            let gone: Vec<String> = state
+                .agents
+                .keys()
+                .filter(|id| !listed.contains_key(*id) && !touched.contains(*id))
+                .cloned()
+                .collect();
+            for id in gone {
+                events.extend(remove(&mut state, &id));
+            }
+            for (id, agent) in listed {
+                if !touched.contains(&id) {
+                    events.extend(upsert(&mut state, agent));
+                }
+            }
+        }
+        self.emit_all(events);
+    }
+
+    fn event(&self, event: Notification) {
+        let events = match event.method.as_str() {
+            method::AGENT_CLAUDE_CHANGED => {
+                let Some(AgentResult { agent }) = params(event.params) else {
+                    return;
+                };
+                let agent = info(agent);
+                let mut state = self.state.lock().unwrap();
+                if let Some(touched) = state.listing.as_mut() {
+                    touched.insert(agent.agent_session.clone());
+                }
+                upsert(&mut state, agent)
+            }
+            method::AGENT_CLAUDE_REMOVED => {
+                let Some(AgentRef { agent_session }) = params(event.params) else {
+                    return;
+                };
+                let mut state = self.state.lock().unwrap();
+                if let Some(touched) = state.listing.as_mut() {
+                    touched.insert(agent_session.clone());
+                }
+                remove(&mut state, &agent_session)
+            }
+            _ => return,
+        };
+        self.emit_all(events);
+    }
+
+    fn emit_all(&self, events: impl IntoIterator<Item = AgentEvent>) {
+        for event in events {
+            (self.emit)(event);
         }
     }
 }
 
-pub fn mark_quitting(dir: &Path) {
-    let _ = std::fs::write(dir.join(QUITTING_MARKER), b"");
+/// What `Agents` subscribes with; weak, so the link doesn't keep it alive.
+struct Subscription(Weak<Agents>);
+
+impl Subscriber for Subscription {
+    fn connected(&self, handle: Handle) {
+        if let Some(agents) = self.0.upgrade() {
+            agents.connected(handle);
+        }
+    }
+
+    fn event(&self, event: Notification) {
+        if let Some(agents) = self.0.upgrade() {
+            agents.event(event);
+        }
+    }
+
+    fn frame(&self, _frame: Frame) {}
 }
 
-#[derive(Deserialize)]
-struct HookInput {
-    session_id: String,
-    cwd: PathBuf,
-    hook_event_name: Option<String>,
-}
-
-fn parse(text: &str) -> Option<AgentLink> {
-    let input: HookInput = serde_json::from_str(text).ok()?;
-    // Typed into a shell, so nothing but an id may get through.
-    let safe = !input.session_id.is_empty()
-        && input
-            .session_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-');
-    (safe && input.cwd.is_absolute()).then(|| AgentLink {
-        session_id: input.session_id,
-        cwd: input.cwd,
-        working: input.hook_event_name.as_deref() == Some("UserPromptSubmit"),
+fn upsert(state: &mut State, agent: AgentInfo) -> Option<AgentEvent> {
+    if state.agents.get(&agent.agent_session) == Some(&agent) {
+        return None;
+    }
+    state
+        .agents
+        .insert(agent.agent_session.clone(), agent.clone());
+    Some(AgentEvent {
+        agent_session: agent.agent_session.clone(),
+        agent: Some(agent),
     })
 }
 
-fn link_path(dir: &Path, key: &str) -> Option<PathBuf> {
-    let safe = !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
-    safe.then(|| dir.join(format!("{key}.json")))
+fn remove(state: &mut State, agent_session: &str) -> Option<AgentEvent> {
+    state.agents.remove(agent_session)?;
+    Some(AgentEvent {
+        agent_session: agent_session.into(),
+        agent: None,
+    })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const ID: &str = "0b7c1a6e-3f1d-4c55-9d6a-2b1f0e9c8a77";
-
-    fn hook(event: &str, session_id: &str) -> String {
-        serde_json::json!({
-            "session_id": session_id,
-            "transcript_path": "/tmp/t.jsonl",
-            "cwd": "/planes/alpha/api",
-            "hook_event_name": event,
-            "source": "startup",
-        })
-        .to_string()
+fn info(agent: wire::Agent) -> AgentInfo {
+    AgentInfo {
+        agent_session: agent.agent_session,
+        session: agent.session,
+        cwd: agent.cwd,
+        name: agent.name,
+        state: state(agent.state),
+        last_error: agent.last_error.map(|e| AgentError {
+            error: e.error,
+            message: e.message,
+        }),
+        polled: agent.tracking == Tracking::Poll,
     }
+}
 
-    #[test]
-    fn parses_hook_input() {
-        assert_eq!(
-            parse(&hook("Stop", ID)),
-            Some(AgentLink {
-                session_id: ID.into(),
-                cwd: "/planes/alpha/api".into(),
-                working: false,
-            })
-        );
-        assert!(parse(&hook("UserPromptSubmit", ID)).unwrap().working);
-        assert_eq!(
-            parse(&hook("SessionStart", ID)).unwrap().resume_command(),
-            format!("claude --resume {ID}\r")
-        );
+fn state(state: wire::AgentState) -> AgentState {
+    use wire::AgentState as Daemon;
+    match state {
+        Daemon::Idle => AgentState::Idle,
+        Daemon::Busy => AgentState::Busy,
+        Daemon::Waiting { reason } => AgentState::Waiting {
+            reason: match reason {
+                wire::WaitingReason::Permission => WaitingReason::Permission,
+                wire::WaitingReason::Input => WaitingReason::Input,
+                wire::WaitingReason::Other | wire::WaitingReason::Unknown => WaitingReason::Other,
+            },
+        },
+        Daemon::Resuming => AgentState::Resuming,
+        Daemon::Exited => AgentState::Exited,
+        Daemon::Unknown => AgentState::Unknown,
     }
+}
 
-    #[test]
-    fn rejects_garbage_and_unsafe_ids() {
-        assert_eq!(parse("not json"), None);
-        assert_eq!(parse("{}"), None);
-        assert_eq!(parse(&hook("Stop", "x; rm -rf ~")), None);
-        assert_eq!(parse(&hook("Stop", "")), None);
-    }
-
-    #[test]
-    fn reads_removes_and_sweeps() {
-        let dir = tempfile::tempdir().unwrap();
-        let dir = dir.path();
-        std::fs::write(dir.join("keep.json"), hook("Stop", ID)).unwrap();
-        std::fs::write(dir.join("keep.pid"), "1").unwrap();
-        std::fs::write(dir.join("drop.json"), hook("Stop", ID)).unwrap();
-        std::fs::write(dir.join("drop.pid"), "1").unwrap();
-        std::fs::write(dir.join("drop.json.tmp"), "").unwrap();
-        mark_quitting(dir);
-
-        assert!(read(dir, "keep").is_some());
-        assert_eq!(read(dir, "../keep"), None);
-        sweep(dir, &HashSet::from(["keep".to_string()]));
-        let mut left: Vec<_> = std::fs::read_dir(dir)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
-        left.sort();
-        assert_eq!(left, ["keep.json", "keep.pid"]);
-
-        remove(dir, "keep");
-        assert_eq!(std::fs::read_dir(dir).unwrap().count(), 0);
-    }
+fn params<T: DeserializeOwned>(params: Option<Value>) -> Option<T> {
+    serde_json::from_value(params?).ok()
 }

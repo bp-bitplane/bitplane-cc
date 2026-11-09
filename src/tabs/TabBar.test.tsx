@@ -1,7 +1,15 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useStore } from "../store/store";
-import { mockBackend, plane, planesModel, seed, session, sessionsById } from "../test/fixtures";
+import {
+  agent,
+  mockBackend,
+  plane,
+  planesModel,
+  seed,
+  session,
+  sessionsById,
+} from "../test/fixtures";
 import { TabBar } from "./TabBar";
 
 describe("TabBar", () => {
@@ -30,6 +38,27 @@ describe("TabBar", () => {
     expect(useStore.getState().activeTab.a).toBe(8);
     await userEvent.click(screen.getByRole("button", { name: "New session" }));
     expect(backend.called("session_open")).toHaveLength(1);
+  });
+
+  it("shows each tab's agent state", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a")]),
+      sessions: sessionsById(session(1, "a"), session(2, "a"), session(3, "a"), session(4, "a")),
+      agents: {
+        old: agent("old", "key-1", { state: { kind: "exited" } }),
+        now: agent("now", "key-1", { state: { kind: "busy" } }),
+        ask: agent("ask", "key-2", { state: { kind: "waiting", reason: "permission" } }),
+        back: agent("back", "key-3", { state: { kind: "resuming" } }),
+        closed: agent("closed", null),
+      },
+    });
+    render(<TabBar planeId="a" />);
+    expect(screen.getAllByRole("img").map((dot) => dot.getAttribute("aria-label"))).toEqual([
+      "Agent busy",
+      "Agent waiting for permission",
+      "Agent resuming",
+    ]);
   });
 
   it("renames a tab on double-click", async () => {

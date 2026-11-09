@@ -1,5 +1,6 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import type {
+  AgentInfo,
   CreateInfo,
   PlaneKind,
   PlaneRow,
@@ -41,6 +42,24 @@ export function session(
     name: null,
     shellName: "zsh",
     rootGone: false,
+    ...overrides,
+  };
+}
+
+/** An idle agent in the tab whose `key` is `session`, started in `/planes/a`. */
+export function agent(
+  agentSession: string,
+  session: string | null,
+  overrides: Partial<AgentInfo> = {},
+): AgentInfo {
+  return {
+    agentSession,
+    session,
+    cwd: "/planes/a",
+    name: null,
+    state: { kind: "idle" },
+    lastError: null,
+    polled: false,
     ...overrides,
   };
 }

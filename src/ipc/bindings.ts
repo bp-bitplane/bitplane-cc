@@ -9,10 +9,11 @@ export const commands = {
 	snapshot: () => __TAURI_INVOKE<Snapshot>("snapshot"),
 	refresh: () => __TAURI_INVOKE<null>("refresh"),
 	/**
-	 *  Open a session in a plane's root. A missing root opens nothing and
-	 *  refreshes the list, which marks the plane gone.
+	 *  Open a session in a plane's root, resuming the agent session `resume`
+	 *  names. A missing root opens nothing and refreshes the list, which marks
+	 *  the plane gone.
 	 */
-	sessionOpen: (planeId: string) => __TAURI_INVOKE<SessionInfo>("session_open", { planeId }),
+	sessionOpen: (planeId: string, resume: string | null) => __TAURI_INVOKE<SessionInfo>("session_open", { planeId, resume }),
 	sessionRestart: (id: number) => __TAURI_INVOKE<SessionInfo>("session_restart", { id }),
 	/**  Closes the session for every client of the daemon. */
 	sessionClose: (id: number) => __TAURI_INVOKE<null>("session_close", { id }),
@@ -59,8 +60,6 @@ export const commands = {
 	/**  The frontend's own state (selection, collapsed planes, zoom), opaque here. */
 	uiStateLoad: () => __TAURI_INVOKE<string | null>("ui_state_load"),
 	uiStateSave: (json: string) => __TAURI_INVOKE<null>("ui_state_save", { json }),
-	agentHooksDescribe: () => __TAURI_INVOKE<AgentHooks>("agent_hooks_describe"),
-	agentHooksInstall: () => __TAURI_INVOKE<null>("agent_hooks_install"),
 	daemonStatus: () => __TAURI_INVOKE<DaemonStatus>("daemon_status"),
 	daemonRetry: () => __TAURI_INVOKE<void>("daemon_retry"),
 	daemonInfo: () => __TAURI_INVOKE<DaemonInfo>("daemon_info"),
@@ -68,6 +67,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	agentChanged: makeEvent<AgentChanged>("agent-changed"),
 	createChanged: makeEvent<CreateChanged>("create-changed"),
 	daemonChanged: makeEvent<DaemonChanged>("daemon-changed"),
 	fileTabsChanged: makeEvent<FileTabsChanged>("file-tabs-changed"),
@@ -78,13 +78,39 @@ export const events = {
 };
 
 /* Types */
-/**  What the "Enable agent resume" dialog shows before installing. */
-export type AgentHooks = {
-	path: string,
-	status: HookStatus,
-	/**  The `hooks` entries that get merged in, as JSON. */
-	entries: string,
+export type AgentChanged = AgentEvent;
+
+export type AgentError = {
+	/**  Claude Code's error type, such as `rate_limit`. */
+	error: string,
+	message: string | null,
 };
+
+/**  `agent_changed`: one agent, or `None` once the daemon dropped it. */
+export type AgentEvent = {
+	agentSession: string,
+	agent: AgentInfo | null,
+};
+
+/**  One agent, as the frontend sees it. */
+export type AgentInfo = {
+	/**  Claude Code's own session id; what a resume names. */
+	agentSession: string,
+	/**  The daemon session it runs in, a tab's `key`; `None` once that closed. */
+	session: string | null,
+	/**  Where the agent session started; it resumes only there. */
+	cwd: string,
+	name: string | null,
+	state: AgentState,
+	/**  Why the last turn failed; the daemon clears it on the next prompt. */
+	lastError: AgentError | null,
+	/**  The agent's hooks didn't load, so its state comes from a poll and lags. */
+	polled: boolean,
+};
+
+export type AgentState = { kind: "idle" } | { kind: "busy" } | { kind: "waiting"; reason: WaitingReason } | { kind: "resuming" } | { kind: "exited" } | 
+/**  A state this build doesn't know, from a newer daemon. */
+{ kind: "unknown" };
 
 /**  Whether the app can talk to bp, and if not, why. */
 export type AppStatus = { kind: "loading" } | { kind: "ready" } | { kind: "bpNotFound" } | { kind: "bpTooOld"; found: string; required: string } | { kind: "bpIncompatible"; version: string | null; error: string } | 
@@ -233,10 +259,6 @@ export type GitTarget = {
 
 export type Head = { kind: "branch"; name: string } | { kind: "detached"; sha: string };
 
-export type HookStatus = "installed" | "missing" | 
-/**  Installed by an older version of the app. */
-"outdated";
-
 /**  `@project` or a repo path, with an optional branch override. */
 export type Member = {
 	spec: string,
@@ -340,6 +362,7 @@ export type SessionStatus = { kind: "running" } |
 export type Snapshot = {
 	planes: PlanesModel,
 	sessions: SessionInfo[],
+	agents: AgentInfo[],
 	creates: CreateInfo[],
 };
 
@@ -364,6 +387,8 @@ export type Tracking = {
 	ahead: number,
 	behind: number,
 };
+
+export type WaitingReason = "permission" | "input" | "other";
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

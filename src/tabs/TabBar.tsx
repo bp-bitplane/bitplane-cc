@@ -1,10 +1,12 @@
 import { File, Plus, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { SessionInfo } from "../ipc";
+import type { AgentInfo, SessionInfo } from "../ipc";
 import { labelFor } from "../keymap";
 import {
   activeTabId,
+  agentOf,
+  agentStateLabel,
   fileTabsOf,
   findPlane,
   programTitle,
@@ -101,7 +103,7 @@ export function TabBar({ planeId }: { planeId: string }) {
   );
 }
 
-/** A Session tab; double-clicking its label renames it (`session.rename`). */
+/** A Session tab and its agent's state; double-clicking its label renames it (`session.rename`). */
 function SessionTab({
   session,
   position,
@@ -111,6 +113,7 @@ function SessionTab({
   position: number;
   active: boolean;
 }) {
+  const agent = useStore((s) => agentOf(s, session));
   const [editing, setEditing] = useState(false);
   // An input removed while focused may still blur; only the first finish counts.
   const finished = useRef(false);
@@ -125,6 +128,7 @@ function SessionTab({
 
   return (
     <div className={`${styles.tab} ${active ? styles.active : ""}`}>
+      {agent && <AgentDot agent={agent} />}
       {editing ? (
         <input
           className={styles.rename}
@@ -168,5 +172,20 @@ function SessionTab({
         <X size={13} />
       </button>
     </div>
+  );
+}
+
+function AgentDot({ agent }: { agent: AgentInfo }) {
+  const state = agentStateLabel(agent);
+  if (state === null) return null;
+  const label = `Agent ${state}`;
+  return (
+    <span
+      className={styles.agent}
+      data-state={agent.state.kind}
+      role="img"
+      aria-label={label}
+      title={label}
+    />
   );
 }
