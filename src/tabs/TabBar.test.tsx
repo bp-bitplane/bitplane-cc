@@ -32,6 +32,40 @@ describe("TabBar", () => {
     expect(backend.called("session_open")).toHaveLength(1);
   });
 
+  it("renames a tab on double-click", async () => {
+    const backend = mockBackend({
+      session_rename: (args) => session(1, "a", { name: args.name as string }),
+    });
+    seed({ planes: planesModel([plane("a")]), sessions: sessionsById(session(1, "a")) });
+    render(<TabBar planeId="a" />);
+    await userEvent.dblClick(screen.getByRole("tab", { name: "1 · zsh" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Rename 1 · zsh" }), "build{Enter}");
+    expect(backend.called("session_rename")[0]?.args).toEqual({ id: 1, name: "build" });
+    expect(await screen.findByRole("tab", { name: "1 · build" })).toBeInTheDocument();
+  });
+
+  it("keeps the name when a rename is cancelled", async () => {
+    const backend = mockBackend();
+    seed({ planes: planesModel([plane("a")]), sessions: sessionsById(session(1, "a")) });
+    render(<TabBar planeId="a" />);
+    await userEvent.dblClick(screen.getByRole("tab", { name: "1 · zsh" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Rename 1 · zsh" }), "x{Escape}");
+    expect(backend.called("session_rename")).toHaveLength(0);
+    expect(screen.getByRole("tab", { name: "1 · zsh" })).toBeInTheDocument();
+  });
+
+  it("shows the program's title beside a named tab", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a")]),
+      sessions: sessionsById(session(1, "a", { name: "build", title: "vim notes" })),
+    });
+    render(<TabBar planeId="a" />);
+    const tab = screen.getByRole("tab", { name: "1 · build" });
+    expect(tab).toHaveAttribute("title", "1 · build — vim notes");
+    expect(screen.getByText("vim notes")).toBeInTheDocument();
+  });
+
   it("disables new sessions on a gone plane", () => {
     mockBackend();
     seed({ planes: planesModel([plane("a", "gone")]), sessions: sessionsById(session(1, "a")) });

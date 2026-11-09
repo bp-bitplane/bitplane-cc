@@ -8,19 +8,19 @@
     "node": ">=26"
   },
   "scripts": {
-    "dev": "pnpm sidecar && tauri dev",
-    "build": "pnpm sidecar && tauri build --no-sign",
+    "dev": "pnpm sidecar && scripts/build-env.sh tauri dev",
+    "build": "pnpm sidecar && scripts/build-env.sh tauri build --no-sign",
     "sidecar": "scripts/build-sidecar.sh",
     "vite:dev": "vite",
     "vite:build": "tsc && vite build",
     "typecheck": "tsc",
-    "lint": "pnpm sidecar && biome check . && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "lint": "pnpm sidecar && biome check . && scripts/build-env.sh cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
     "format": "biome format --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "format:check": "biome format . && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
-    "test": "pnpm sidecar && vitest run && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "pnpm sidecar && vitest run && scripts/build-env.sh cargo test --manifest-path src-tauri/Cargo.toml",
     "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test",
     "tauri": "tauri",
-    "dmg": "pnpm sidecar && pnpm tauri build --bundles dmg"
+    "dmg": "pnpm sidecar && scripts/build-env.sh pnpm tauri build --bundles dmg"
   },
   "dependencies": {
     "@pierre/diffs": "1.5.2",

@@ -1,14 +1,12 @@
-//! What restore reads on launch (ADR 0005): the open sessions in
-//! `<app data>/sessions.json`, rewritten shortly after every session change.
+//! Files cc writes atomically, and the sessions cc restored itself before the
+//! daemon owned them (ADR 0005, superseded by 0028): `<app data>/sessions.json`
+//! is no longer written, only kept for the Agents section to import.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 const VERSION: u32 = 1;
-pub const DEBOUNCE: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,15 +40,6 @@ pub fn load(path: &Path) -> Vec<Entry> {
     }
 }
 
-pub fn save(path: &Path, sessions: Vec<Entry>) -> std::io::Result<()> {
-    let file = File {
-        version: VERSION,
-        sessions,
-    };
-    let json = serde_json::to_vec_pretty(&file).map_err(std::io::Error::other)?;
-    write_atomic(path, &json)
-}
-
 /// A crash mid-write leaves the previous file, never a torn one.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
@@ -61,82 +50,6 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = PathBuf::from(tmp);
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
-}
-
-pub type Collect = Arc<dyn Fn() -> Vec<Entry> + Send + Sync>;
-
-/// Saves `collect()` on a background thread, at most once per `DEBOUNCE`.
-pub struct Persister {
-    path: PathBuf,
-    collect: Collect,
-    state: Arc<(Mutex<PersistState>, Condvar)>,
-}
-
-#[derive(Default)]
-struct PersistState {
-    dirty: bool,
-    /// Set by `flush` at quit: the hang-up that follows must not save an
-    /// empty list over the sessions restore needs.
-    frozen: bool,
-}
-
-impl Persister {
-    pub fn new(path: PathBuf, collect: Collect) -> Arc<Self> {
-        let persister = Arc::new(Persister {
-            path,
-            collect,
-            state: Arc::default(),
-        });
-        let weak = Arc::downgrade(&persister);
-        let state = Arc::clone(&persister.state);
-        std::thread::Builder::new()
-            .name("persist".into())
-            .spawn(move || {
-                loop {
-                    {
-                        let (lock, changed) = &*state;
-                        let mut s = lock.lock().unwrap();
-                        while !s.dirty {
-                            s = changed.wait(s).unwrap();
-                        }
-                    }
-                    std::thread::sleep(DEBOUNCE);
-                    let Some(persister) = weak.upgrade() else {
-                        return;
-                    };
-                    persister.write();
-                }
-            })
-            .expect("spawning a thread");
-        persister
-    }
-
-    pub fn mark(&self) {
-        let (lock, changed) = &*self.state;
-        lock.lock().unwrap().dirty = true;
-        changed.notify_all();
-    }
-
-    /// Save now and stop saving.
-    pub fn flush(&self) {
-        self.write();
-        self.state.0.lock().unwrap().frozen = true;
-    }
-
-    fn write(&self) {
-        let mut s = self.state.0.lock().unwrap();
-        if s.frozen {
-            return;
-        }
-        s.dirty = false;
-        // Held while writing, so a flush can't race a background save.
-        if let Err(error) = save(&self.path, (self.collect)()) {
-            eprintln!(
-                "bitplane-cc: couldn't save {}: {error}",
-                self.path.display()
-            );
-        }
-    }
 }
 
 #[cfg(test)]
@@ -154,10 +67,14 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_in_creation_order() {
+    fn loads_in_creation_order() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("data/sessions.json");
-        save(&path, vec![entry("b", 2), entry("a", 1)]).unwrap();
+        let file = File {
+            version: VERSION,
+            sessions: vec![entry("b", 2), entry("a", 1)],
+        };
+        write_atomic(&path, &serde_json::to_vec(&file).unwrap()).unwrap();
         assert_eq!(load(&path), [entry("a", 1), entry("b", 2)]);
         assert!(!dir.path().join("data/sessions.json.tmp").exists());
     }
@@ -171,28 +88,5 @@ mod tests {
         assert!(load(&path).is_empty());
         std::fs::write(&path, r#"{"version":2,"sessions":[]}"#).unwrap();
         assert!(load(&path).is_empty());
-    }
-
-    #[test]
-    fn saves_after_a_change_and_never_after_a_flush() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("sessions.json");
-        let entries = Arc::new(Mutex::new(vec![entry("a", 1)]));
-        let source = Arc::clone(&entries);
-        let persister = Persister::new(
-            path.clone(),
-            Arc::new(move || source.lock().unwrap().clone()),
-        );
-
-        persister.mark();
-        std::thread::sleep(DEBOUNCE * 3);
-        assert_eq!(load(&path), [entry("a", 1)]);
-
-        entries.lock().unwrap().push(entry("b", 2));
-        persister.flush();
-        entries.lock().unwrap().clear();
-        persister.mark();
-        std::thread::sleep(DEBOUNCE * 3);
-        assert_eq!(load(&path), [entry("a", 1), entry("b", 2)]);
     }
 }

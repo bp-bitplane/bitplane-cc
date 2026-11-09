@@ -1,7 +1,7 @@
 import { CreatePlaneDialog } from "../create-plane/CreatePlaneDialog";
 import { Log } from "../create-plane/CreateProgress";
-import type { AgentHooks, BusyProcess, DaemonInfo } from "../ipc";
-import { closeDialog, closeSession, installAgentHooks, quit, useStore } from "../store/store";
+import type { AgentHooks, DaemonInfo } from "../ipc";
+import { closeDialog, closeSession, installAgentHooks, useStore } from "../store/store";
 import styles from "./Dialogs.module.css";
 import { DialogActions, Modal } from "./Modal";
 import { Palette } from "./Palette";
@@ -47,40 +47,6 @@ export function Dialogs() {
           </div>
         </Modal>
       );
-    case "quit": {
-      const { busy, creating } = dialog.info;
-      const resuming = busy.filter((b) => b.resumes && !b.working);
-      const lost = busy.filter((b) => !b.resumes || b.working);
-      return (
-        <Modal label="Quit?" onClose={closeDialog}>
-          <div className={styles.body}>
-            <h3>Quit?</h3>
-            <BusyList title="Will be lost" busy={lost} />
-            <BusyList title="Will resume" busy={resuming} />
-            {creating.length > 0 && (
-              <p>
-                {creating.length} {creating.length === 1 ? "plane is" : "planes are"} still being
-                created: {creating.join(", ")}
-              </p>
-            )}
-            <DialogActions>
-              <button type="button" onClick={closeDialog}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="primary"
-                // biome-ignore lint/a11y/noAutofocus: Enter confirms, like a native sheet
-                autoFocus
-                onClick={() => void quit()}
-              >
-                Quit
-              </button>
-            </DialogActions>
-          </div>
-        </Modal>
-      );
-    }
     case "agentResume":
       return <AgentResumeDialog hooks={dialog.hooks} error={dialog.error} />;
     case "daemonInfo":
@@ -143,24 +109,6 @@ function DaemonInfoDialog({ info }: { info: DaemonInfo | null }) {
         </DialogActions>
       </div>
     </Modal>
-  );
-}
-
-function BusyList({ title, busy }: { title: string; busy: BusyProcess[] }) {
-  if (busy.length === 0) return null;
-  return (
-    <section aria-label={title}>
-      <p>{title}:</p>
-      <ul>
-        {busy.map((b, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: one plane can list the same process twice
-          <li key={index}>
-            {b.planeId}: <code>{b.processName}</code>
-            {b.working && " (mid-turn)"}
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 

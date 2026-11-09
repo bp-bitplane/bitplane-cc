@@ -1,3 +1,7 @@
+---
+status: superseded by ADR 0028
+---
+
 # Restore the layout and agent sessions, not live processes
 
 Sessions die with the app: quitting SIGHUPs every PTY. To survive a quit, crash, update or reboot, the app persists its sessions (plane, root, title, order, agent link) and, on launch, reopens each as a fresh shell; a session that last ran an agent session types `claude --resume <id>` into it, from the directory that agent session started in. Agents report their own id through Claude Code hooks installed into `~/.claude/settings.json`, which write the hook's stdin to a file named by the `$BITPLANE_SESSION_ID` the app puts in each shell's environment; the hooks do nothing outside the app, and a file survives the app not running. The hook on an agent's exit removes its file only while the app that started the shell is still running, so a link outlives any app death (quit, crash, update, reboot) but not the user exiting the agent.

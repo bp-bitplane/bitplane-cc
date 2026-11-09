@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::ipc::Invoke;
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
-use tauri::{AppHandle, State, Wry};
+use tauri::{State, Wry};
 use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_events};
 
 use crate::app::{App, PlanesModel, Snapshot};
@@ -25,7 +25,6 @@ use crate::git::{self, Repo};
 use crate::git_watch::{FileTabsEvent, GitTarget, SourceControlEvent};
 use crate::hooks::{self, AgentHooks};
 use crate::planes;
-use crate::quit::{self, QuitInfo};
 use crate::sessions::{BusyInfo, OutputSink, SessionError, SessionEvent, SessionId, SessionInfo};
 
 pub type AppState = Arc<App>;
@@ -55,11 +54,6 @@ pub struct FileTabsChanged(pub FileTabsEvent);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct DaemonChanged(pub DaemonStatus);
 
-/// The user asked to quit (⌘Q or closing the window); the frontend decides
-/// whether to confirm.
-#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
-pub struct QuitRequested;
-
 /// The typed half of the IPC surface.
 pub fn builder() -> Builder<Wry> {
     Builder::<Wry>::new()
@@ -70,7 +64,7 @@ pub fn builder() -> Builder<Wry> {
             session_restart,
             session_close,
             session_busy,
-            session_set_title,
+            session_rename,
             pty_resize,
             pty_ack,
             plane_create_draft,
@@ -87,8 +81,6 @@ pub fn builder() -> Builder<Wry> {
             plane_file_contents,
             plane_read_file,
             project_list,
-            quit_check,
-            quit,
             ui_state_load,
             ui_state_save,
             agent_hooks_describe,
@@ -104,8 +96,7 @@ pub fn builder() -> Builder<Wry> {
             SourceControlChanged,
             FilesChanged,
             FileTabsChanged,
-            DaemonChanged,
-            QuitRequested
+            DaemonChanged
         ])
         .error_handling(ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()
@@ -129,8 +120,8 @@ fn raw_handler() -> impl Fn(Invoke<Wry>) -> bool + Send + Sync + 'static {
 
 #[tauri::command]
 #[specta::specta]
-fn snapshot(app: State<'_, AppState>) -> Snapshot {
-    app.snapshot()
+async fn snapshot(app: State<'_, AppState>) -> Result<Snapshot, String> {
+    Ok(app.snapshot().await)
 }
 
 #[tauri::command]
@@ -158,49 +149,48 @@ async fn refresh(app: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Spawn a session in a plane's root. A missing root spawns nothing and
+/// Open a session in a plane's root. A missing root opens nothing and
 /// refreshes the list, which marks the plane gone.
 #[tauri::command]
 #[specta::specta]
 async fn session_open(app: State<'_, AppState>, plane_id: String) -> Result<SessionInfo, String> {
     let dir = app.plane_dir(&plane_id)?;
-    match app.sessions.open(&plane_id, &dir) {
-        Err(error @ SessionError::RootMissing(_)) => {
-            app.refresh_list().await;
-            Err(error.to_string())
-        }
-        result => result.map_err(|e| e.to_string()),
-    }
+    let result = app.sessions.open(&plane_id, &dir).await;
+    refresh_if_gone(&app, result).await
 }
 
 #[tauri::command]
 #[specta::specta]
 async fn session_restart(app: State<'_, AppState>, id: SessionId) -> Result<SessionInfo, String> {
-    match app.sessions.restart(id) {
-        Err(error @ SessionError::RootMissing(_)) => {
-            app.refresh_list().await;
-            Err(error.to_string())
-        }
-        result => result.map_err(|e| e.to_string()),
-    }
+    let result = app.sessions.restart(id).await;
+    refresh_if_gone(&app, result).await
+}
+
+/// Closes the session for every client of the daemon.
+#[tauri::command]
+#[specta::specta]
+async fn session_close(app: State<'_, AppState>, id: SessionId) -> Result<(), String> {
+    app.sessions.close(id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-fn session_close(app: State<'_, AppState>, id: SessionId) {
-    app.sessions.close(id);
+async fn session_busy(app: State<'_, AppState>, id: SessionId) -> Result<BusyInfo, String> {
+    app.sessions.busy(id).await.map_err(|e| e.to_string())
 }
 
+/// The tab's own name, apart from the title the program sets; `None` clears it.
 #[tauri::command]
 #[specta::specta]
-fn session_busy(app: State<'_, AppState>, id: SessionId) -> Result<BusyInfo, String> {
-    app.sessions.busy(id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn session_set_title(app: State<'_, AppState>, id: SessionId, title: String) {
-    app.sessions.set_title(id, title);
+async fn session_rename(
+    app: State<'_, AppState>,
+    id: SessionId,
+    name: Option<String>,
+) -> Result<SessionInfo, String> {
+    app.sessions
+        .rename(id, name)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -211,6 +201,7 @@ fn pty_resize(app: State<'_, AppState>, id: SessionId, cols: u16, rows: u16) -> 
         .map_err(|e| e.to_string())
 }
 
+/// The cumulative count of bytes the terminal has drawn since it attached.
 #[tauri::command]
 #[specta::specta]
 fn pty_ack(app: State<'_, AppState>, id: SessionId, bytes: u64) {
@@ -343,18 +334,6 @@ async fn project_list(app: State<'_, AppState>) -> Result<Vec<Project>, String> 
     app.bp()?.projects().await.map_err(|e| e.message())
 }
 
-#[tauri::command]
-#[specta::specta]
-fn quit_check(app: State<'_, AppState>) -> QuitInfo {
-    quit::check(&app)
-}
-
-#[tauri::command]
-#[specta::specta]
-fn quit(handle: AppHandle, app: State<'_, AppState>) {
-    quit::quit(&handle, &app);
-}
-
 /// The frontend's own state (selection, collapsed planes, zoom), opaque here.
 #[tauri::command]
 #[specta::specta]
@@ -388,7 +367,7 @@ fn agent_settings(app: &App) -> Result<std::path::PathBuf, String> {
 
 /// Input: the raw body, with the session id in a header.
 #[tauri::command]
-async fn pty_write(app: State<'_, AppState>, request: Request<'_>) -> Result<(), String> {
+fn pty_write(app: State<'_, AppState>, request: Request<'_>) -> Result<(), String> {
     let id: SessionId = request
         .headers()
         .get(SESSION_HEADER)
@@ -403,23 +382,33 @@ async fn pty_write(app: State<'_, AppState>, request: Request<'_>) -> Result<(),
             .as_bytes()
             .to_vec(),
     };
-    let app = AppState::clone(&app);
-    tauri::async_runtime::spawn_blocking(move || app.sessions.write(id, &bytes))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
+    app.sessions.write(id, &bytes).map_err(|e| e.to_string())
 }
 
-/// Bind an output channel; the ack window restarts at zero (spec §7.5).
+/// Bind an output channel at the terminal's size: it starts with a snapshot,
+/// and acks count from zero again.
 #[tauri::command]
 fn session_attach(
     app: State<'_, AppState>,
     id: SessionId,
+    cols: u16,
+    rows: u16,
     channel: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
     app.sessions
-        .attach(id, Arc::new(ChannelSink(channel)))
+        .attach(id, cols, rows, Arc::new(ChannelSink(channel)))
         .map_err(|e| e.to_string())
+}
+
+/// A missing root refreshes the list, which marks the plane gone.
+async fn refresh_if_gone(
+    app: &App,
+    result: Result<SessionInfo, SessionError>,
+) -> Result<SessionInfo, String> {
+    if let Err(SessionError::RootMissing(_)) = &result {
+        app.refresh_list().await;
+    }
+    result.map_err(|e| e.to_string())
 }
 
 struct ChannelSink(Channel<InvokeResponseBody>);

@@ -40,7 +40,7 @@ describe("matchShortcut", () => {
     });
   });
 
-  it("leaves ⌘Q to the app menu, whose Quit asks first", () => {
+  it("leaves ⌘Q to the app menu", () => {
     expect(matchShortcut("mac", key("KeyQ", { metaKey: true }))).toBeNull();
   });
 

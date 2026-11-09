@@ -17,7 +17,7 @@ The plane's directory; every new session starts here.
 _Avoid_: Plane path, plane folder
 
 **Session**:
-One shell process with its own terminal, belonging to exactly one plane.
+One shell process with its own terminal, belonging to exactly one plane; the host's session daemon owns it, so it outlives cc.
 _Avoid_: Terminal, shell, tab
 
 **Tab**:
@@ -25,8 +25,12 @@ One entry in a plane's tab bar: a session tab or a file tab.
 _Avoid_: Session (when meaning the UI element)
 
 **Session tab**:
-The UI handle of one session; there is always exactly one session tab per session.
+The UI handle of one session; there is always exactly one session tab per session, including sessions another client opened.
 _Avoid_: Terminal tab
+
+**Tab name**:
+The user's name for a session tab, kept apart from the title the program in it sets.
+_Avoid_: Title (that is the program's)
 
 **File tab**:
 A tab showing one file of a plane, as a diff or its plain contents; it exists only in the UI, is never restored, and opens as the plane's single preview until pinned.
@@ -57,8 +61,8 @@ The record of which agent session a session last ran; restoring the session resu
 _Avoid_: Agent binding, resume token
 
 **Restore**:
-Reopening, on launch, the tabs that were open when the app last stopped, each with a fresh shell in its plane and its agent session resumed.
-_Avoid_: Reattach (a reload reattaches to running sessions), persist
+Bringing the sessions back after the session daemon itself restarted, each with a fresh shell in its plane and its agent session resumed.
+_Avoid_: Reattach (relaunching cc or reloading reattaches to the running sessions, with a snapshot), persist
 
 **Sidebar**:
 The resizable plane list on the left edge, where planes and their tabs are picked.

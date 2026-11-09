@@ -1,5 +1,5 @@
 /**
- * The UI state that survives a restart (ADR 0005). Tabs are saved by session
+ * The UI state that survives a relaunch. Tabs are saved by session
  * key: session ids start over with every launch. File tabs aren't restored
  * (ADR 0008), so an active one falls back to the plane's last session.
  */
