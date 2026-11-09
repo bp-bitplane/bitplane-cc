@@ -22,18 +22,22 @@ specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 specta-typescript = "=0.0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-uuid = { version = "1", features = ["v4"] }
-portable-pty = "0.9"
 notify-debouncer-mini = "0.7"
 tokio = { version = "1", features = ["process", "time", "sync", "macros", "rt-multi-thread", "io-util"] }
 libc = "0.2"
 toml = "1"
-bitplane-protocol = { git = "https://github.com/bp-bitplane/bitplane-protocol", rev = "4ba2d1ad8415432d5ca6095fb3bea7ba0fc636c8" }
+bitplane-protocol = { git = "https://github.com/bp-bitplane/bitplane-protocol", rev = "d2b9974dd8857c4d6952cee3352a1d3e40ec6426" }
 # Also the rev scripts/build-sidecar.sh bundles, so cc's client and its daemon match.
-bitplane-sessiond = { git = "https://github.com/bp-bitplane/bitplane-sessiond", rev = "0cc4d43f99706462097171a5b60a110ba1deb13c" }
+bitplane-sessiond = { git = "https://github.com/bp-bitplane/bitplane-sessiond", rev = "75463a749b7cca71d674e9058f4cd54ee2df2595" }
 
 [dev-dependencies]
 tempfile = "3"
+
+# The daemon's terminal state, which the integration tests run in-process:
+# its Debug build verifies page integrity on every scroll (see sessiond's).
+[profile.dev.package.libghostty-vt-sys]
+debug = false
+opt-level = 3
 
 [profile.release]
 codegen-units = 1

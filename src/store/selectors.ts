@@ -61,8 +61,14 @@ export function tabLabel(session: SessionInfo, position: number): string {
   return `${position} · ${sessionTitle(session)}`;
 }
 
+/** The user's name for the tab, else the program's title, else the shell. */
 export function sessionTitle(session: SessionInfo): string {
-  return session.title ?? session.shellName;
+  return session.name ?? session.title ?? session.shellName;
+}
+
+/** The program's title, shown beside a named tab's name. */
+export function programTitle(session: SessionInfo): string | null {
+  return session.name !== null && session.title !== session.name ? session.title : null;
 }
 
 export function isExpanded(state: Pick<State, "sessions" | "collapsed">, planeId: string): boolean {

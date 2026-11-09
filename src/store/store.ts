@@ -18,7 +18,6 @@ import {
   type GitTarget,
   type PlaneRow,
   type PlanesModel,
-  type QuitInfo,
   type Repo,
   type SessionEvent,
   type SessionInfo,
@@ -60,7 +59,6 @@ export type Dialog =
     }
   | { kind: "createLog"; planeId: string }
   | { kind: "confirmClose"; sessionId: number; processName: string }
-  | { kind: "quit"; info: QuitInfo }
   | { kind: "agentResume"; hooks: AgentHooks | null; error: string | null }
   | { kind: "daemonInfo"; info: DaemonInfo | null };
 
@@ -180,7 +178,7 @@ const sourceControlMounts = new Map<string, number>();
 let gitWatchSent = "null";
 
 /** Load the snapshot and follow backend events. Returns an unsubscribe. */
-export async function connect(onQuitRequested: () => void = requestQuit): Promise<() => void> {
+export async function connect(): Promise<() => void> {
   const unlisten = await Promise.all([
     events.planesChanged.listen((e) => applyPlanes(e.payload)),
     events.sessionChanged.listen((e) => applySession(e.payload)),
@@ -188,7 +186,6 @@ export async function connect(onQuitRequested: () => void = requestQuit): Promis
     events.sourceControlChanged.listen((e) => applySourceControl(e.payload)),
     events.filesChanged.listen((e) => applyFilesChanged(e.payload)),
     events.fileTabsChanged.listen((e) => applyFileTabsChanged(e.payload)),
-    events.quitRequested.listen(() => onQuitRequested()),
     events.daemonChanged.listen((e) => set({ daemon: e.payload })),
   ]);
   loadSnapshot(await commands.snapshot());
@@ -240,16 +237,7 @@ export function loadSnapshot(snapshot: Snapshot): void {
   for (const create of snapshot.creates) {
     if (create.status.kind === "scriptFailed") scriptFailed[create.id] = true;
   }
-  const skipped = snapshot.restoreSkipped;
-  set({
-    planes: snapshot.planes,
-    sessions,
-    creates,
-    scriptFailed,
-    ...(skipped.length > 0 && {
-      notice: `Couldn't restore the sessions of ${skipped.join(", ")}: ${skipped.length === 1 ? "the plane is" : "the planes are"} gone.`,
-    }),
-  });
+  set({ planes: snapshot.planes, sessions, creates, scriptFailed });
 }
 
 export function applyPlanes(planes: PlanesModel): void {
@@ -357,9 +345,24 @@ export function closeActiveTab(): void {
   else closeFileTab(planeId, id);
 }
 
+/** Closes the session for every client of the daemon, not just this tab. */
 export async function closeSession(sessionId: number): Promise<void> {
   if (get().dialog?.kind === "confirmClose") set({ dialog: null });
-  await commands.sessionClose(sessionId);
+  try {
+    await commands.sessionClose(sessionId);
+  } catch (error) {
+    set({ notice: String(error) });
+  }
+}
+
+/** The tab's own name, shown apart from the program's title; blank clears it. */
+export async function renameSession(sessionId: number, name: string): Promise<void> {
+  try {
+    const session = await commands.sessionRename(sessionId, name.trim() || null);
+    if (get().sessions[sessionId]) applySession({ id: sessionId, session });
+  } catch (error) {
+    set({ notice: String(error) });
+  }
 }
 
 export async function restartSession(sessionId: number): Promise<void> {
@@ -734,21 +737,6 @@ export async function installAgentHooks(): Promise<void> {
     const hooks = dialog?.kind === "agentResume" ? dialog.hooks : null;
     set({ dialog: { kind: "agentResume", hooks, error: String(error) } });
   }
-}
-
-/** Quit from the menu or closing the window: confirm only when something would be lost. */
-export async function requestQuit(): Promise<void> {
-  const info = await commands.quitCheck();
-  const lost = info.busy.some((b) => !b.resumes || b.working);
-  if (lost || info.creating.length > 0) {
-    set({ dialog: { kind: "quit", info } });
-  } else {
-    await commands.quit();
-  }
-}
-
-export async function quit(): Promise<void> {
-  await commands.quit();
 }
 
 function clampFontSize(size: number): number {

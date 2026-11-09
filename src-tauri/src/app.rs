@@ -1,26 +1,30 @@
-//! The backend's state, owned in one place (ADR 0004): the plane list and
-//! what it's built from, plus the session and create registries and what
-//! survives a restart (ADR 0005).
+//! The backend's state, owned in one place: the plane list and what it's
+//! built from, the session tabs mirrored from the daemon (ADR 0028) and the
+//! create registry.
 
-use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::Notify;
 
-use crate::agents;
 use crate::bp::{self, Bp, BpError, VersionError};
 use crate::create::{CreateEvent, CreateInfo, CreateStatus, Creates};
+use crate::daemon::DaemonLink;
 use crate::env::{self, CapturedEnv, EnvMap};
 use crate::files_watch::{self, FilesEvent, FilesWatch};
 use crate::git;
 use crate::git_watch::{FileTabsEvent, GitTarget, GitWatch, Scope, SourceControlEvent};
-use crate::persist::{self, Persister};
+use crate::persist;
 use crate::planes::{self, PlaneKind, PlaneRow, Source, Watcher};
-use crate::sessions::{Restore, SessionEvent, SessionInfo, Sessions, SpawnConfig};
+use crate::sessions::{SessionConfig, SessionEvent, SessionInfo, Sessions};
+
+/// How long `snapshot` waits for the daemon's session list, so the UI state
+/// it restores finds its tabs.
+const SESSIONS_READY: Duration = Duration::from_secs(3);
 
 /// Whether the app can talk to bp, and if not, why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -71,8 +75,6 @@ pub struct Snapshot {
     pub planes: PlanesModel,
     pub sessions: Vec<SessionInfo>,
     pub creates: Vec<CreateInfo>,
-    /// Planes whose sessions weren't restored because their root is gone.
-    pub restore_skipped: Vec<String>,
 }
 
 /// Where the app keeps what outlives it.
@@ -80,6 +82,8 @@ pub struct Snapshot {
 pub struct DataDir(pub PathBuf);
 
 impl DataDir {
+    /// What cc restored before the daemon owned sessions, kept for the
+    /// Agents section to import (ADR 0028).
     pub fn sessions(&self) -> PathBuf {
         self.0.join("sessions.json")
     }
@@ -108,8 +112,6 @@ pub struct Emitters {
 pub struct App {
     original_env: EnvMap,
     data_dir: Option<DataDir>,
-    persister: Option<Arc<Persister>>,
-    restore_skipped: Mutex<Vec<String>>,
     pub sessions: Arc<Sessions>,
     pub creates: Arc<Creates>,
     state: Mutex<State>,
@@ -145,10 +147,10 @@ struct State {
 }
 
 impl App {
-    /// Without a data dir nothing is saved or restored.
+    /// Without a data dir nothing is saved.
     pub fn new(
         original_env: EnvMap,
-        app_version: String,
+        daemon: &DaemonLink,
         data_dir: Option<DataDir>,
         emitters: Emitters,
     ) -> Arc<Self> {
@@ -159,30 +161,21 @@ impl App {
 
         let app = Arc::clone(&this);
         let emit_session = emitters.session;
+        let agents_dir = data_dir.as_ref().map(DataDir::agents);
         let sessions = Sessions::new(
-            SpawnConfig {
-                env: original_env.clone(),
-                shell,
-                app_version,
-                agents_dir: data_dir.as_ref().map(DataDir::agents),
+            daemon,
+            SessionConfig {
+                shell_name: env::shell_name(&shell),
+                env: agent_env(agents_dir.as_deref()),
+                agents_dir,
             },
             Arc::new(move |event| {
                 emit_session(event);
                 if let Some(app) = app.get().and_then(Weak::upgrade) {
-                    if let Some(persister) = &app.persister {
-                        persister.mark();
-                    }
                     app.remerge();
                 }
             }),
         );
-        let persister = data_dir.as_ref().map(|dir| {
-            let sessions = Arc::downgrade(&sessions);
-            Persister::new(
-                dir.sessions(),
-                Arc::new(move || sessions.upgrade().map(|s| s.entries()).unwrap_or_default()),
-            )
-        });
 
         let app = Arc::clone(&this);
         let emit_create = emitters.create;
@@ -203,8 +196,6 @@ impl App {
         let app = Arc::new(App {
             original_env,
             data_dir,
-            persister,
-            restore_skipped: Mutex::default(),
             sessions,
             creates,
             state: Mutex::new(State::default()),
@@ -223,52 +214,6 @@ impl App {
         });
         let _ = this.set(Arc::downgrade(&app));
         app
-    }
-
-    /// Reopen the sessions open when the app last stopped, resuming their
-    /// agent sessions. Runs before the frontend first asks for a snapshot.
-    pub fn restore(&self) {
-        let Some(dir) = &self.data_dir else { return };
-        let agents_dir = dir.agents();
-        if let Err(error) = std::fs::create_dir_all(&agents_dir) {
-            eprintln!(
-                "bitplane-cc: couldn't create {}: {error}",
-                agents_dir.display()
-            );
-        }
-        let mut restored = HashSet::new();
-        let mut skipped: Vec<String> = Vec::new();
-        for entry in persist::load(&dir.sessions()) {
-            if !entry.plane_dir.is_dir() {
-                if !skipped.contains(&entry.plane_id) {
-                    skipped.push(entry.plane_id);
-                }
-                continue;
-            }
-            let link = agents::read(&agents_dir, &entry.key);
-            let restore = plan_restore(entry, link);
-            let key = restore.key.clone();
-            if self.sessions.restore(restore).is_ok() {
-                restored.insert(key);
-            }
-        }
-        agents::sweep(&agents_dir, &restored);
-        *self.restore_skipped.lock().unwrap() = skipped;
-    }
-
-    /// Save the sessions now and stop saving, then keep agent links from
-    /// being deleted by the hang-up that quitting sends.
-    pub fn prepare_quit(&self) {
-        if let Some(persister) = &self.persister {
-            persister.flush();
-        }
-        if let Some(dir) = &self.data_dir {
-            agents::mark_quitting(&dir.agents());
-        }
-    }
-
-    pub fn agent_link(&self, key: &str) -> Option<agents::AgentLink> {
-        agents::read(&self.data_dir.as_ref()?.agents(), key)
     }
 
     pub fn ui_state_load(&self) -> Option<String> {
@@ -511,7 +456,8 @@ impl App {
         (self.emit_planes)(model);
     }
 
-    pub fn snapshot(&self) -> Snapshot {
+    pub async fn snapshot(&self) -> Snapshot {
+        self.sessions.ready(SESSIONS_READY).await;
         let planes = self.state.lock().unwrap().model.clone();
         Snapshot {
             planes: planes.unwrap_or_else(|| PlanesModel {
@@ -524,8 +470,6 @@ impl App {
             }),
             sessions: self.sessions.list(),
             creates: self.creates.list(),
-            // Taken, so a webview reload doesn't repeat the notice.
-            restore_skipped: std::mem::take(&mut *self.restore_skipped.lock().unwrap()),
         }
     }
 
@@ -608,30 +552,19 @@ impl App {
     }
 }
 
-/// Resume in the agent session's directory when it's still inside the plane;
-/// otherwise start in the root and say how to resume by hand.
-fn plan_restore(entry: persist::Entry, link: Option<agents::AgentLink>) -> Restore {
-    let mut restore = Restore {
-        key: entry.key,
-        plane_id: entry.plane_id,
-        cwd: entry.plane_dir.clone(),
-        plane_dir: entry.plane_dir,
-        title: entry.title,
-        input: None,
-        notice: None,
+/// What the agent hooks read to write agent links into cc's data dir, which
+/// the Agents section imports into the daemon (ADR 0028).
+fn agent_env(agents_dir: Option<&Path>) -> BTreeMap<String, String> {
+    let Some(dir) = agents_dir else {
+        return BTreeMap::new();
     };
-    let Some(link) = link else { return restore };
-    if link.resumable_in(&restore.plane_dir) {
-        restore.cwd = link.cwd.clone();
-        restore.input = Some(link.resume_command());
-    } else {
-        restore.notice = Some(format!(
-            "bitplane-cc: not resuming the agent session from {}, which is gone or outside this plane; it was: claude --resume {}",
-            link.cwd.display(),
-            link.session_id
-        ));
+    if let Err(error) = std::fs::create_dir_all(dir) {
+        eprintln!("bitplane-cc: couldn't create {}: {error}", dir.display());
     }
-    restore
+    BTreeMap::from([
+        ("BITPLANE_CC_AGENTS".into(), dir.display().to_string()),
+        ("BITPLANE_CC_PID".into(), std::process::id().to_string()),
+    ])
 }
 
 /// Find bp on the captured `PATH` and check its version.
@@ -700,9 +633,10 @@ mod tests {
     use super::*;
 
     fn quiet_app() -> Arc<App> {
+        let daemon = DaemonLink::new(Err("no daemon".into()), PathBuf::new(), Arc::new(|_| {}));
         App::new(
             EnvMap::new(),
-            "0.0.0".into(),
+            &daemon,
             None,
             Emitters {
                 planes: Arc::new(|_| {}),
@@ -739,52 +673,6 @@ mod tests {
             make_draft(&planes, "scratch"),
             Err("scratch already exists".into())
         );
-    }
-
-    fn entry(plane_dir: &Path) -> persist::Entry {
-        persist::Entry {
-            key: "k1".into(),
-            plane_id: "alpha".into(),
-            plane_dir: plane_dir.into(),
-            title: Some("claude".into()),
-            seq: 1,
-        }
-    }
-
-    fn link(cwd: &Path) -> agents::AgentLink {
-        agents::AgentLink {
-            session_id: "abc-123".into(),
-            cwd: cwd.into(),
-            working: false,
-        }
-    }
-
-    #[test]
-    fn restore_resumes_in_the_agent_directory() {
-        let dir = tempfile::tempdir().unwrap();
-        let api = dir.path().join("api");
-        std::fs::create_dir(&api).unwrap();
-
-        let plain = plan_restore(entry(dir.path()), None);
-        assert_eq!(plain.cwd, dir.path());
-        assert_eq!((plain.input, plain.notice), (None, None));
-
-        let resumed = plan_restore(entry(dir.path()), Some(link(&api)));
-        assert_eq!(resumed.cwd, api);
-        assert_eq!(resumed.input.as_deref(), Some("claude --resume abc-123\r"));
-        assert_eq!(resumed.title.as_deref(), Some("claude"));
-    }
-
-    #[test]
-    fn restore_without_the_agent_directory_starts_in_the_root() {
-        let dir = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        for cwd in [dir.path().join("gone"), outside.path().to_path_buf()] {
-            let restore = plan_restore(entry(dir.path()), Some(link(&cwd)));
-            assert_eq!(restore.cwd, dir.path());
-            assert_eq!(restore.input, None);
-            assert!(restore.notice.unwrap().contains("claude --resume abc-123"));
-        }
     }
 
     #[test]

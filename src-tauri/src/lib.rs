@@ -18,27 +18,24 @@ pub mod hooks;
 pub mod ipc;
 pub mod persist;
 pub mod planes;
-pub mod quit;
 pub mod sessions;
 
 use std::sync::Arc;
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Manager, RunEvent, Runtime, WindowEvent};
+use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
+use tauri::{Manager, RunEvent, Runtime};
 use tauri_plugin_window_state::StateFlags;
 use tauri_specta::Event;
 
 use crate::app::{App, DataDir, Emitters};
 use crate::daemon::DaemonLink;
 use crate::ipc::{
-    CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged, PlanesChanged, QuitRequested,
-    SessionChanged, SourceControlChanged,
+    CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged, PlanesChanged, SessionChanged,
+    SourceControlChanged,
 };
 
 /// Where tauri-specta writes the TypeScript bindings.
 pub const BINDINGS_PATH: &str = "../src/ipc/bindings.ts";
-
-const QUIT_MENU_ID: &str = "quit";
 
 pub fn run() {
     let builder = ipc::builder();
@@ -54,15 +51,20 @@ pub fn run() {
                 .build(),
         )
         .menu(menu)
-        .on_menu_event(|handle, event| {
-            if event.id() == QUIT_MENU_ID {
-                let _ = QuitRequested.emit(handle);
-            }
-        })
         .invoke_handler(invoke_handler)
         .setup(move |tauri_app| {
             builder.mount_events(tauri_app);
             let handle = tauri_app.handle().clone();
+            let daemon = {
+                let handle = handle.clone();
+                DaemonLink::new(
+                    bitplane_sessiond::paths::Dirs::for_host(),
+                    bundled_daemon(),
+                    Arc::new(move |status| {
+                        let _ = DaemonChanged(status).emit(&handle);
+                    }),
+                )
+            };
             let emitters = Emitters {
                 planes: {
                     let handle = handle.clone();
@@ -104,25 +106,12 @@ pub fn run() {
             let data_dir = match tauri_app.path().app_data_dir() {
                 Ok(dir) => Some(DataDir(dir)),
                 Err(error) => {
-                    eprintln!("bitplane-cc: no app data directory, nothing is restored: {error}");
+                    eprintln!("bitplane-cc: no app data directory, nothing is saved: {error}");
                     None
                 }
             };
-            let app = App::new(
-                env::original(),
-                tauri_app.package_info().version.to_string(),
-                data_dir,
-                emitters,
-            );
-            app.restore();
+            let app = App::new(env::original(), &daemon, data_dir, emitters);
             tauri_app.manage::<ipc::AppState>(Arc::clone(&app));
-            let daemon = DaemonLink::new(
-                bitplane_sessiond::paths::Dirs::for_host(),
-                bundled_daemon(),
-                Arc::new(move |status| {
-                    let _ = DaemonChanged(status).emit(&handle);
-                }),
-            );
             tauri_app.manage::<ipc::DaemonState>(Arc::clone(&daemon));
             tauri::async_runtime::spawn(async move {
                 daemon.start();
@@ -131,31 +120,16 @@ pub fn run() {
             });
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event
-                && !quit::is_quitting()
-            {
-                api.prevent_close();
-                let _ = QuitRequested.emit(window.app_handle());
-            }
-        })
         .build(tauri::generate_context!())
         .expect("building the tauri application")
-        .run(|handle, event| match event {
-            // `quit` exits with a code; anything else asks first.
-            RunEvent::ExitRequested {
-                api, code: None, ..
-            } if !quit::is_quitting() => {
-                api.prevent_exit();
-                let _ = QuitRequested.emit(handle);
+        .run(|handle, event| {
+            // Quitting just quits (ADR 0028): the daemon keeps the sessions.
+            // A create is told to stop, so it can clean up.
+            if let RunEvent::Exit = event
+                && let Some(app) = handle.try_state::<ipc::AppState>()
+            {
+                app.creates.interrupt_all();
             }
-            // A Dock Quit (`terminate:`) can't be prevented and skips `quit`.
-            RunEvent::Exit => {
-                if let Some(app) = handle.try_state::<ipc::AppState>() {
-                    quit::tear_down(&app);
-                }
-            }
-            _ => {}
         });
 }
 
@@ -179,8 +153,7 @@ pub fn export_bindings<R: Runtime>(
         .map_err(|e| e.to_string())
 }
 
-/// The standard menus minus Close Window, whose ⌘W closes a session here, and
-/// with a Quit that asks first: the standard one quits through `terminate:`.
+/// The standard menus minus Close Window, whose ⌘W closes a tab here.
 fn menu<R: Runtime>(handle: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
     let name = handle.package_info().name.clone();
     Menu::with_items(
@@ -199,14 +172,7 @@ fn menu<R: Runtime>(handle: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
                     &PredefinedMenuItem::hide_others(handle, None)?,
                     &PredefinedMenuItem::show_all(handle, None)?,
                     &PredefinedMenuItem::separator(handle)?,
-                    &MenuItem::with_id(
-                        handle,
-                        QUIT_MENU_ID,
-                        format!("Quit {name}"),
-                        true,
-                        // Linux keeps plain Ctrl keys for the terminal.
-                        cfg!(target_os = "macos").then_some("Cmd+Q"),
-                    )?,
+                    &PredefinedMenuItem::quit(handle, None)?,
                 ],
             )?,
             &Submenu::with_items(

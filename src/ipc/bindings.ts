@@ -9,15 +9,18 @@ export const commands = {
 	snapshot: () => __TAURI_INVOKE<Snapshot>("snapshot"),
 	refresh: () => __TAURI_INVOKE<null>("refresh"),
 	/**
-	 *  Spawn a session in a plane's root. A missing root spawns nothing and
+	 *  Open a session in a plane's root. A missing root opens nothing and
 	 *  refreshes the list, which marks the plane gone.
 	 */
 	sessionOpen: (planeId: string) => __TAURI_INVOKE<SessionInfo>("session_open", { planeId }),
 	sessionRestart: (id: number) => __TAURI_INVOKE<SessionInfo>("session_restart", { id }),
-	sessionClose: (id: number) => __TAURI_INVOKE<void>("session_close", { id }),
+	/**  Closes the session for every client of the daemon. */
+	sessionClose: (id: number) => __TAURI_INVOKE<null>("session_close", { id }),
 	sessionBusy: (id: number) => __TAURI_INVOKE<BusyInfo>("session_busy", { id }),
-	sessionSetTitle: (id: number, title: string) => __TAURI_INVOKE<void>("session_set_title", { id, title }),
+	/**  The tab's own name, apart from the title the program sets; `None` clears it. */
+	sessionRename: (id: number, name: string | null) => __TAURI_INVOKE<SessionInfo>("session_rename", { id, name }),
 	ptyResize: (id: number, cols: number, rows: number) => __TAURI_INVOKE<null>("pty_resize", { id, cols, rows }),
+	/**  The cumulative count of bytes the terminal has drawn since it attached. */
 	ptyAck: (id: number, bytes: number) => __TAURI_INVOKE<void>("pty_ack", { id, bytes }),
 	planeCreateDraft: (id: string) => __TAURI_INVOKE<null>("plane_create_draft", { id }),
 	planeCreate: (args: CreateArgs) => __TAURI_INVOKE<null>("plane_create", { args }),
@@ -53,8 +56,6 @@ export const commands = {
 	planeFileContents: (planeId: string, path: string, mode: DiffMode) => __TAURI_INVOKE<FileContents>("plane_file_contents", { planeId, path, mode }),
 	planeReadFile: (planeId: string, path: string) => __TAURI_INVOKE<FileText>("plane_read_file", { planeId, path }),
 	projectList: () => __TAURI_INVOKE<Project[]>("project_list"),
-	quitCheck: () => __TAURI_INVOKE<QuitInfo>("quit_check"),
-	quit: () => __TAURI_INVOKE<void>("quit"),
 	/**  The frontend's own state (selection, collapsed planes, zoom), opaque here. */
 	uiStateLoad: () => __TAURI_INVOKE<string | null>("ui_state_load"),
 	uiStateSave: (json: string) => __TAURI_INVOKE<null>("ui_state_save", { json }),
@@ -72,7 +73,6 @@ export const events = {
 	fileTabsChanged: makeEvent<FileTabsChanged>("file-tabs-changed"),
 	filesChanged: makeEvent<FilesChanged>("files-changed"),
 	planesChanged: makeEvent<PlanesChanged>("planes-changed"),
-	quitRequested: makeEvent<QuitRequested>("quit-requested"),
 	sessionChanged: makeEvent<SessionChanged>("session-changed"),
 	sourceControlChanged: makeEvent<SourceControlChanged>("source-control-changed"),
 };
@@ -98,15 +98,6 @@ export type BranchIntent = "auto" | "new" | "existing";
 export type BusyInfo = {
 	busy: boolean,
 	processName: string | null,
-};
-
-export type BusyProcess = {
-	planeId: string,
-	processName: string,
-	/**  An agent session runs here and restore will resume it. */
-	resumes: boolean,
-	/**  The agent is mid-turn; resuming won't finish the turn. */
-	working: boolean,
 };
 
 export type Change = {
@@ -298,18 +289,6 @@ export type Project = {
 	sourceRepoPresent: boolean,
 };
 
-export type QuitInfo = {
-	busy: BusyProcess[],
-	/**  Ids of planes still being created. */
-	creating: string[],
-};
-
-/**
- *  The user asked to quit (⌘Q or closing the window); the frontend decides
- *  whether to confirm.
- */
-export type QuitRequested = null;
-
 /**  One repo's section in Source control. */
 export type Repo = {
 	name: string,
@@ -329,19 +308,26 @@ export type SessionEvent = {
 	session: SessionInfo | null,
 };
 
-/**  One session, as the frontend sees it. */
+/**  One session tab, as the frontend sees it. */
 export type SessionInfo = {
 	id: number,
-	/**  Stable across restarts of the app, unlike `id`. */
+	/**
+	 *  The daemon's session id, also the shell's `BITPLANE_SESSION_ID`;
+	 *  stable across launches of cc and restarts of the daemon.
+	 */
 	key: string,
 	planeId: string,
-	/**  Creation order; a plane's tabs are its sessions sorted by this. */
+	/**  Creation order on this host; a plane's tabs are sorted by it. */
 	seq: number,
 	status: SessionStatus,
 	/**  Set by the program via OSC 0/2. */
 	title: string | null,
+	/**  The user's name for the tab, set by `session.rename`. */
+	name: string | null,
 	/**  The fallback title. */
 	shellName: string,
+	/**  The session root no longer exists; restarting it fails. */
+	rootGone: boolean,
 };
 
 export type SessionStatus = { kind: "running" } | 
@@ -355,8 +341,6 @@ export type Snapshot = {
 	planes: PlanesModel,
 	sessions: SessionInfo[],
 	creates: CreateInfo[],
-	/**  Planes whose sessions weren't restored because their root is gone. */
-	restoreSkipped: string[],
 };
 
 export type SourceControlChanged = SourceControlEvent;

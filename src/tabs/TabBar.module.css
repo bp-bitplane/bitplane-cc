@@ -96,3 +96,18 @@
   flex-shrink: 0;
   color: var(--dim);
 }
+
+.label .suffix {
+  margin-left: 6px;
+}
+
+.rename {
+  width: 140px;
+  height: 20px;
+  padding: 0 4px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+}

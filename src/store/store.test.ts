@@ -15,6 +15,7 @@ import {
   applySession,
   closeActiveTab,
   closeFileTab,
+  closeSession,
   connect,
   createPlane,
   cyclePlane,
@@ -22,12 +23,11 @@ import {
   followGitWatch,
   goToPlane,
   goToTab,
-  loadSnapshot,
   loadUiState,
   openFileTab,
   pinFileTab,
+  renameSession,
   requestCloseSession,
-  requestQuit,
   selectPlane,
   selectSession,
   useStore,
@@ -353,6 +353,39 @@ describe("closing sessions", () => {
   });
 });
 
+describe("renaming sessions", () => {
+  it("sends the trimmed name, and clears it when blank", async () => {
+    const backend = mockBackend({
+      session_rename: (args) => session(1, "a", { name: (args.name as string | null) ?? null }),
+    });
+    seed({ sessions: sessionsById(session(1, "a")) });
+    await renameSession(1, "  build ");
+    expect(state().sessions[1]?.name).toBe("build");
+    await renameSession(1, "   ");
+    expect(backend.called("session_rename").map((c) => c.args)).toEqual([
+      { id: 1, name: "build" },
+      { id: 1, name: null },
+    ]);
+    expect(state().sessions[1]?.name).toBeNull();
+  });
+
+  it("shows why a rename or close failed", async () => {
+    mockBackend({
+      session_rename: () => {
+        throw "the session daemon isn't connected";
+      },
+      session_close: () => {
+        throw "no session k1";
+      },
+    });
+    seed({ sessions: sessionsById(session(1, "a")) });
+    await renameSession(1, "build");
+    expect(state().notice).toBe("the session daemon isn't connected");
+    await closeSession(1);
+    expect(state().notice).toBe("no session k1");
+  });
+});
+
 describe("create outcomes", () => {
   it("selects the new plane and opens a session on success", async () => {
     const backend = mockBackend({ session_open: () => session(3, "feat") });
@@ -426,61 +459,7 @@ describe("create outcomes", () => {
   });
 });
 
-describe("quitting", () => {
-  it("quits without asking when nothing is running", async () => {
-    const backend = mockBackend({ quit_check: () => ({ busy: [], creating: [] }) });
-    seed();
-    await requestQuit();
-    expect(backend.called("quit")).toHaveLength(1);
-  });
-
-  it("asks when sessions are busy or planes are being created", async () => {
-    const info = {
-      busy: [{ planeId: "a", processName: "vim", resumes: false, working: false }],
-      creating: ["b"],
-    };
-    const backend = mockBackend({ quit_check: () => info });
-    seed();
-    await requestQuit();
-    expect(backend.called("quit")).toHaveLength(0);
-    expect(state().dialog).toEqual({ kind: "quit", info });
-  });
-
-  it("quits without asking when every busy session resumes", async () => {
-    const info = {
-      busy: [{ planeId: "a", processName: "claude", resumes: true, working: false }],
-      creating: [],
-    };
-    const backend = mockBackend({ quit_check: () => info });
-    seed();
-    await requestQuit();
-    expect(backend.called("quit")).toHaveLength(1);
-  });
-
-  it("asks when an agent is mid-turn", async () => {
-    const info = {
-      busy: [{ planeId: "a", processName: "claude", resumes: true, working: true }],
-      creating: [],
-    };
-    const backend = mockBackend({ quit_check: () => info });
-    seed();
-    await requestQuit();
-    expect(backend.called("quit")).toHaveLength(0);
-  });
-});
-
 describe("restoring", () => {
-  it("says which planes were skipped", () => {
-    seed();
-    loadSnapshot({
-      planes: planesModel([]),
-      sessions: [],
-      creates: [],
-      restoreSkipped: ["a", "b"],
-    });
-    expect(state().notice).toBe("Couldn't restore the sessions of a, b: the planes are gone.");
-  });
-
   it("maps saved tabs back to the restored sessions by key", () => {
     seed({
       sessions: sessionsById(session(1, "alpha"), session(2, "alpha", { key: "k-two" })),
@@ -524,10 +503,10 @@ it("zooms within bounds and resets to 12 px", () => {
 describe("the session daemon", () => {
   it("loads its status on connect and follows changes", async () => {
     mockBackend({
-      snapshot: () => ({ planes: planesModel([]), sessions: [], creates: [], restoreSkipped: [] }),
+      snapshot: () => ({ planes: planesModel([]), sessions: [], creates: [] }),
       daemon_status: () => ({ kind: "failed", message: "timed out", log: "/s/sessiond.log" }),
     });
-    const stop = await connect(() => {});
+    const stop = await connect();
     expect(state().daemon).toEqual({
       kind: "failed",
       message: "timed out",

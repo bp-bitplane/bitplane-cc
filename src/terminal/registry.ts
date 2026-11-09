@@ -4,35 +4,39 @@
  */
 import { GhosttyCore } from "@wterm/ghostty";
 import type { TerminalHandle } from "@wterm/react";
-import { attachSession, commands } from "../ipc";
+import { attachSession, commands, FRAME_SNAPSHOT, type FrameKind } from "../ipc";
 
 /** Fixed per session (spec §9); budgets under ~1 MB don't take effect. */
 export const SCROLLBACK_BYTES = 8 * 1024 * 1024;
 
+/** Full reset, then erase the scrollback: a snapshot redraws both. */
+export const RESET = "\x1bc\x1b[3J";
+
 interface Entry {
   core: Promise<GhosttyCore>;
   handle: TerminalHandle | null;
-  /** Frames that arrived before the terminal was ready; unacked until written. */
-  backlog: Uint8Array[];
-  /** Bytes written into the terminal since the channel was attached. */
+  /** Data bytes written since the channel was attached; the ack. */
   consumed: number;
 }
 
 const entries = new Map<number, Entry>();
 
-/** The session's core, creating it and attaching its channel on first use. */
+/** The session's core, creating it on first use. */
 export function terminalCore(id: number): Promise<GhosttyCore> {
   return entry(id).core;
 }
 
-/** Called once wterm is ready: write whatever arrived meanwhile. */
-export function setHandle(id: number, handle: TerminalHandle | null): void {
-  const current = entries.get(id);
-  if (!current) return;
+/**
+ * Called once wterm is ready: attach at its size. The daemon answers with a
+ * snapshot of the session, so a reload or relaunch shows it as it is.
+ */
+export function attachTerminal(id: number, handle: TerminalHandle, cols: number, rows: number) {
+  const current = entry(id);
   current.handle = handle;
-  if (!handle) return;
-  const backlog = current.backlog.splice(0);
-  for (const bytes of backlog) write(id, current, bytes);
+  current.consumed = 0;
+  void attachSession(id, cols, rows, (kind, bytes) => write(id, current, kind, bytes)).catch(
+    (error) => console.error(`attaching session ${id}:`, error),
+  );
 }
 
 /**
@@ -50,27 +54,22 @@ export function disposeTerminal(id: number): void {
 function entry(id: number): Entry {
   let current = entries.get(id);
   if (current) return current;
-  const created: Entry = {
+  current = {
     core: GhosttyCore.load({
       scrollbackLimit: SCROLLBACK_BYTES,
       backgroundColor: "#000000",
       foregroundColor: "#f5f5f5",
     }),
     handle: null,
-    backlog: [],
     consumed: 0,
   };
-  current = created;
-  entries.set(id, created);
-  void attachSession(id, (bytes) => {
-    if (created.handle) write(id, created, bytes);
-    else created.backlog.push(bytes);
-  }).catch((error) => console.error(`attaching session ${id}:`, error));
-  return created;
+  entries.set(id, current);
+  return current;
 }
 
-/** Write a frame, then ack it: the cumulative ack is the backend's credit. */
-function write(id: number, target: Entry, bytes: Uint8Array): void {
+/** Write a frame, then ack it: the cumulative ack is the daemon's credit. */
+function write(id: number, target: Entry, kind: FrameKind, bytes: Uint8Array): void {
+  if (kind === FRAME_SNAPSHOT) target.handle?.write(RESET);
   target.handle?.write(bytes);
   target.consumed += bytes.byteLength;
   void commands.ptyAck(id, target.consumed);

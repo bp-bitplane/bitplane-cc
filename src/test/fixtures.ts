@@ -38,7 +38,9 @@ export function session(
     seq: id,
     status: { kind: "running" },
     title: null,
+    name: null,
     shellName: "zsh",
+    rootGone: false,
     ...overrides,
   };
 }

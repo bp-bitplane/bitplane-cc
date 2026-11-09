@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { commands, ptyWrite, type SessionInfo } from "../ipc";
 import { findPlane } from "../store/selectors";
 import { closeSession, restartSession, useStore } from "../store/store";
-import { disposeTerminal, setHandle, terminalCore } from "./registry";
+import { attachTerminal, disposeTerminal, terminalCore } from "./registry";
 import styles from "./TerminalStack.module.css";
 
 /**
@@ -51,12 +51,10 @@ function TerminalPane({ session, visible }: { session: SessionInfo; visible: boo
           autoResize
           renderingPaused={!visible}
           className={styles.terminal}
-          onData={(data) => void ptyWrite(id, data)}
-          onResize={(cols, rows) => void commands.ptyResize(id, cols, rows)}
-          onTitle={(title) => void commands.sessionSetTitle(id, title)}
+          onData={(data) => void ptyWrite(id, data).catch(() => undefined)}
+          onResize={(cols, rows) => void commands.ptyResize(id, cols, rows).catch(() => undefined)}
           onReady={(term) => {
-            setHandle(id, ref.current);
-            void commands.ptyResize(id, term.cols, term.rows);
+            if (ref.current) attachTerminal(id, ref.current, term.cols, term.rows);
             if (visible) ref.current?.focus();
           }}
           onError={(error) => console.error(`terminal ${id}:`, error)}
@@ -68,7 +66,8 @@ function TerminalPane({ session, visible }: { session: SessionInfo; visible: boo
 }
 
 function ExitedBar({ session }: { session: SessionInfo }) {
-  const gone = useStore((s) => findPlane(s, session.planeId)?.kind === "gone");
+  const planeGone = useStore((s) => findPlane(s, session.planeId)?.kind === "gone");
+  const gone = planeGone || session.rootGone;
   const failed = session.status.kind === "spawnFailed";
   return (
     <div className={styles.exited} role="status">

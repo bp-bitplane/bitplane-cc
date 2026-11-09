@@ -1,11 +1,21 @@
 import { File, Plus, X } from "lucide-react";
+import { useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import type { SessionInfo } from "../ipc";
 import { labelFor } from "../keymap";
-import { activeTabId, fileTabsOf, findPlane, sessionsOf, tabLabel } from "../store/selectors";
+import {
+  activeTabId,
+  fileTabsOf,
+  findPlane,
+  programTitle,
+  sessionsOf,
+  tabLabel,
+} from "../store/selectors";
 import {
   closeFileTab,
   openSession,
   pinFileTab,
+  renameSession,
   requestCloseSession,
   selectSession,
   selectTab,
@@ -31,34 +41,14 @@ export function TabBar({ planeId }: { planeId: string }) {
       aria-label={`Tabs in ${planeId}`}
       data-tauri-drag-region
     >
-      {sessions.map((session, index) => {
-        const label = tabLabel(session, index + 1);
-        const active = session.id === current;
-        return (
-          <div key={session.id} className={`${styles.tab} ${active ? styles.active : ""}`}>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={active}
-              className={styles.label}
-              title={label}
-              tabIndex={-1}
-              onClick={() => selectSession(planeId, session.id)}
-            >
-              {label}
-            </button>
-            <button
-              type="button"
-              className={styles.close}
-              aria-label={`Close ${label}`}
-              tabIndex={-1}
-              onClick={() => void requestCloseSession(session.id)}
-            >
-              <X size={13} />
-            </button>
-          </div>
-        );
-      })}
+      {sessions.map((session, index) => (
+        <SessionTab
+          key={session.id}
+          session={session}
+          position={index + 1}
+          active={session.id === current}
+        />
+      ))}
       {fileTabs.map((tab) => {
         const key = fileTabKey(tab);
         const title = fileTabTitle(tab);
@@ -106,6 +96,76 @@ export function TabBar({ planeId }: { planeId: string }) {
         onClick={() => void openSession(planeId)}
       >
         <Plus size={15} />
+      </button>
+    </div>
+  );
+}
+
+/** A Session tab; double-clicking its label renames it (`session.rename`). */
+function SessionTab({
+  session,
+  position,
+  active,
+}: {
+  session: SessionInfo;
+  position: number;
+  active: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  // An input removed while focused may still blur; only the first finish counts.
+  const finished = useRef(false);
+  const label = tabLabel(session, position);
+  const title = programTitle(session);
+  const finish = (name: string | null) => {
+    if (finished.current) return;
+    finished.current = true;
+    setEditing(false);
+    if (name !== null && name !== (session.name ?? "")) void renameSession(session.id, name);
+  };
+
+  return (
+    <div className={`${styles.tab} ${active ? styles.active : ""}`}>
+      {editing ? (
+        <input
+          className={styles.rename}
+          aria-label={`Rename ${label}`}
+          defaultValue={session.name ?? ""}
+          placeholder={session.title ?? session.shellName}
+          // biome-ignore lint/a11y/noAutofocus: the field appears because the user asked to type in it
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter") finish(e.currentTarget.value);
+            else if (e.key === "Escape") finish(null);
+          }}
+          onBlur={(e) => finish(e.currentTarget.value)}
+        />
+      ) : (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active}
+          aria-label={label}
+          className={styles.label}
+          title={title ? `${label} — ${title}` : label}
+          tabIndex={-1}
+          onClick={() => selectSession(session.planeId, session.id)}
+          onDoubleClick={() => {
+            finished.current = false;
+            setEditing(true);
+          }}
+        >
+          {label}
+          {title && <span className={styles.suffix}>{title}</span>}
+        </button>
+      )}
+      <button
+        type="button"
+        className={styles.close}
+        aria-label={`Close ${label}`}
+        tabIndex={-1}
+        onClick={() => void requestCloseSession(session.id)}
+      >
+        <X size={13} />
       </button>
     </div>
   );

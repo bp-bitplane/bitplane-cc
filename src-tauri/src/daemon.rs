@@ -6,7 +6,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use bitplane_protocol::HelloResult;
+use std::future::Future;
+use std::pin::pin;
+use std::task::Poll;
+
+use bitplane_protocol::{Frame, HelloResult, Notification};
 use bitplane_sessiond::autostart::{StartError, connect_or_start};
 use bitplane_sessiond::client::{Handle, Streams};
 use bitplane_sessiond::paths::Dirs;
@@ -69,6 +73,16 @@ pub struct DaemonInfo {
 
 pub type OnChange = Arc<dyn Fn(DaemonStatus) + Send + Sync>;
 
+/// What follows the daemon's state: told about every connection, then fed
+/// its events and frames in the order they arrive.
+pub trait Subscriber: Send + Sync {
+    /// A new connection, after a blip or to a new instance alike: whatever
+    /// lived on the previous one (attachments) is gone.
+    fn connected(&self, handle: Handle);
+    fn event(&self, event: Notification);
+    fn frame(&self, frame: Frame);
+}
+
 pub struct DaemonLink {
     dirs: Result<Dirs, String>,
     exe: PathBuf,
@@ -77,6 +91,7 @@ pub struct DaemonLink {
     hello: Mutex<Option<HelloResult>>,
     retry: Notify,
     on_change: OnChange,
+    subscribers: Mutex<Vec<Arc<dyn Subscriber>>>,
 }
 
 impl DaemonLink {
@@ -90,6 +105,7 @@ impl DaemonLink {
             hello: Mutex::new(None),
             retry: Notify::new(),
             on_change,
+            subscribers: Mutex::default(),
         })
     }
 
@@ -97,6 +113,11 @@ impl DaemonLink {
     /// runtime.
     pub fn start(self: &Arc<Self>) {
         tokio::spawn(Arc::clone(self).supervise());
+    }
+
+    /// Subscribe before [`DaemonLink::start`], or the first connection is missed.
+    pub fn subscribe(&self, subscriber: Arc<dyn Subscriber>) {
+        self.subscribers.lock().unwrap().push(subscriber);
     }
 
     pub fn status(&self) -> DaemonStatus {
@@ -145,10 +166,20 @@ impl DaemonLink {
                     let restarted = previous.as_ref().is_some_and(|last| *last != instance);
                     previous = Some(instance);
                     delay = RETRY_MIN;
-                    *self.handle.lock().unwrap() = Some(handle);
+                    *self.handle.lock().unwrap() = Some(handle.clone());
                     *self.hello.lock().unwrap() = Some(hello.clone());
                     self.set_status(connected(hello, restarted));
-                    while streams.next_event().await.is_some() {}
+                    for subscriber in self.subscribers() {
+                        subscriber.connected(handle.clone());
+                    }
+                    while let Some(incoming) = next_incoming(&mut streams).await {
+                        for subscriber in self.subscribers() {
+                            match &incoming {
+                                Incoming::Event(event) => subscriber.event(event.clone()),
+                                Incoming::Frame(frame) => subscriber.frame(frame.clone()),
+                            }
+                        }
+                    }
                     self.handle.lock().unwrap().take();
                     self.set_status(DaemonStatus::Connecting);
                 }
@@ -186,6 +217,10 @@ impl DaemonLink {
         Ok((handle, streams, hello))
     }
 
+    fn subscribers(&self) -> Vec<Arc<dyn Subscriber>> {
+        self.subscribers.lock().unwrap().clone()
+    }
+
     fn set_status(&self, status: DaemonStatus) {
         let mut current = self.status.lock().unwrap();
         if *current != status {
@@ -194,6 +229,25 @@ impl DaemonLink {
             (self.on_change)(status);
         }
     }
+}
+
+enum Incoming {
+    Event(Notification),
+    Frame(Frame),
+}
+
+/// The next event or frame, whichever is ready; `None` once the connection
+/// dropped. Each poll makes fresh `recv` futures: they are cancel-safe.
+async fn next_incoming(streams: &mut Streams) -> Option<Incoming> {
+    std::future::poll_fn(|cx| {
+        if let Poll::Ready(Some(frame)) = pin!(streams.next_frame()).poll(cx) {
+            return Poll::Ready(Some(Incoming::Frame(frame)));
+        }
+        pin!(streams.next_event())
+            .poll(cx)
+            .map(|event| event.map(Incoming::Event))
+    })
+    .await
 }
 
 fn connected(hello: HelloResult, restarted: bool) -> DaemonStatus {
