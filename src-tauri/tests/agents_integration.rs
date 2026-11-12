@@ -422,7 +422,7 @@ impl Host {
         let timing = Timing {
             poll: Duration::from_millis(100),
             live: Duration::from_millis(1000),
-            grace: Duration::from_millis(500),
+            grace: Duration::from_millis(2000),
         };
         let config = Config {
             dirs: self.dirs.clone(),
