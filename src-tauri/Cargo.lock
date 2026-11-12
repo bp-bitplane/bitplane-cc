@@ -211,7 +211,7 @@ dependencies = [
 [[package]]
 name = "bitplane-protocol"
 version = "0.1.0"
-source = "git+https://github.com/bp-bitplane/bitplane-protocol?rev=d2b9974dd8857c4d6952cee3352a1d3e40ec6426#d2b9974dd8857c4d6952cee3352a1d3e40ec6426"
+source = "git+https://github.com/bp-bitplane/bitplane-protocol?rev=5cfec70a49817ef1a003d8ccd119af063d94b64f#5cfec70a49817ef1a003d8ccd119af063d94b64f"
 dependencies = [
  "serde",
  "serde_json",
@@ -220,7 +220,7 @@ dependencies = [
 [[package]]
 name = "bitplane-sessiond"
 version = "0.1.0"
-source = "git+https://github.com/bp-bitplane/bitplane-sessiond?rev=75463a749b7cca71d674e9058f4cd54ee2df2595#75463a749b7cca71d674e9058f4cd54ee2df2595"
+source = "git+https://github.com/bp-bitplane/bitplane-sessiond?rev=35c1ebd9cc23c87009aca627b9fc0fb69d76b02a#35c1ebd9cc23c87009aca627b9fc0fb69d76b02a"
 dependencies = [
  "bitplane-protocol",
  "clap",

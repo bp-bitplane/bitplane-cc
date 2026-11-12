@@ -14,8 +14,8 @@ pub mod files_watch;
 pub mod git;
 pub mod git_cli;
 pub mod git_watch;
-pub mod hooks;
 pub mod ipc;
+pub mod migrate;
 pub mod persist;
 pub mod planes;
 pub mod sessions;
@@ -30,8 +30,8 @@ use tauri_specta::Event;
 use crate::app::{App, DataDir, Emitters};
 use crate::daemon::DaemonLink;
 use crate::ipc::{
-    CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged, PlanesChanged, SessionChanged,
-    SourceControlChanged,
+    AgentChanged, AgentKindsChanged, CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged,
+    PlanesChanged, SessionChanged, SourceControlChanged,
 };
 
 /// Where tauri-specta writes the TypeScript bindings.
@@ -78,6 +78,18 @@ pub fn run() {
                         let _ = SessionChanged(event).emit(&handle);
                     })
                 },
+                agent: {
+                    let handle = handle.clone();
+                    Arc::new(move |event| {
+                        let _ = AgentChanged(event).emit(&handle);
+                    })
+                },
+                agent_kinds: {
+                    let handle = handle.clone();
+                    Arc::new(move |kinds| {
+                        let _ = AgentKindsChanged(kinds).emit(&handle);
+                    })
+                },
                 create: {
                     let handle = handle.clone();
                     Arc::new(move |event| {
@@ -116,7 +128,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 daemon.start();
                 app.start();
-                app.refresh().await;
+                tokio::join!(app.refresh(), app.import_legacy());
             });
             Ok(())
         })

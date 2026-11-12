@@ -96,12 +96,13 @@ describe("Sidebar", () => {
     expect(useStore.getState().activeTab.old).toBe(3);
   });
 
-  it("opens a session when selecting a plane without any", async () => {
-    const backend = mockBackend({ session_open: () => session(9, "beta") });
+  it("opens the launcher when selecting a plane without any session", async () => {
+    const backend = mockBackend();
     render(<Sidebar />);
     await userEvent.click(screen.getByRole("button", { name: "beta" }));
     await flush();
-    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "beta" });
+    expect(useStore.getState().dialog).toEqual({ kind: "launcher", planeId: "beta" });
+    expect(backend.called("session_open")).toHaveLength(0);
   });
 
   it("leaves the header's left side to the macOS traffic lights", () => {

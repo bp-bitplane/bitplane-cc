@@ -1,5 +1,6 @@
 import { emit } from "@tauri-apps/api/event";
 import {
+  agent,
   createInfo,
   flush,
   mockBackend,
@@ -23,11 +24,15 @@ import {
   followGitWatch,
   goToPlane,
   goToTab,
+  launch,
   loadUiState,
   openFileTab,
+  openLauncher,
+  openSession,
   pinFileTab,
   renameSession,
   requestCloseSession,
+  resumeAgent,
   selectPlane,
   selectSession,
   useStore,
@@ -38,39 +43,41 @@ import {
 const state = () => useStore.getState();
 
 describe("selecting planes", () => {
-  it("opens a session when the plane has none", async () => {
-    const backend = mockBackend({ session_open: () => session(7, "alpha") });
+  it("opens the launcher when the plane has no tabs, and starts nothing by itself", async () => {
+    const backend = mockBackend();
     seed({ planes: planesModel([plane("alpha")]) });
     selectPlane("alpha");
     await flush();
-    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "alpha" });
     expect(state().selectedPlaneId).toBe("alpha");
-    expect(state().activeTab.alpha).toBe(7);
-    expect(state().sessions[7]).toBeDefined();
+    expect(state().dialog).toEqual({ kind: "launcher", planeId: "alpha" });
+    expect(backend.called("session_open")).toHaveLength(0);
   });
 
-  it("opens a session in a draft plane too", async () => {
-    const backend = mockBackend({ session_open: () => session(1, "scratch") });
+  it("opens the launcher in a draft plane too", () => {
+    mockBackend();
     seed({ planes: planesModel([plane("scratch", "draft")]) });
     selectPlane("scratch");
-    await flush();
-    expect(backend.called("session_open")).toHaveLength(1);
+    expect(state().dialog).toEqual({ kind: "launcher", planeId: "scratch" });
   });
 
-  it.each(["gone", "creating"] as const)("never opens a session in a %s plane", async (kind) => {
-    const backend = mockBackend();
+  it.each(["gone", "creating"] as const)("never opens the launcher in a %s plane", (kind) => {
+    mockBackend();
     seed({ planes: planesModel([plane("p", kind)]) });
     selectPlane("p");
-    await flush();
-    expect(backend.called("session_open")).toHaveLength(0);
+    openLauncher("p");
+    expect(state().dialog).toBeNull();
   });
 
-  it("keeps existing sessions instead of opening another", async () => {
-    const backend = mockBackend();
-    seed({ planes: planesModel([plane("alpha")]), sessions: sessionsById(session(1, "alpha")) });
+  it("keeps existing tabs instead of opening the launcher", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("alpha"), plane("beta")]),
+      sessions: sessionsById(session(1, "alpha")),
+      fileTabs: { beta: [{ planeId: "beta", path: "x.ts", mode: "file", pinned: true }] },
+    });
     selectPlane("alpha");
-    await flush();
-    expect(backend.called("session_open")).toHaveLength(0);
+    selectPlane("beta");
+    expect(state().dialog).toBeNull();
   });
 
   it("shows the error when the root is missing", async () => {
@@ -79,9 +86,9 @@ describe("selecting planes", () => {
         throw "the plane root /planes/alpha no longer exists";
       },
     });
-    seed({ planes: planesModel([plane("alpha")]) });
-    selectPlane("alpha");
-    await flush();
+    seed({ planes: planesModel([plane("alpha")]), dialog: { kind: "launcher", planeId: "alpha" } });
+    await launch("alpha", null);
+    expect(state().dialog).toBeNull();
     expect(state().notice).toContain("no longer exists");
   });
 
@@ -103,6 +110,61 @@ describe("selecting planes", () => {
   });
 });
 
+describe("the launcher", () => {
+  it("starts a terminal or an agent terminal of a kind and selects it", async () => {
+    const backend = mockBackend({ session_open: () => session(7, "alpha") });
+    seed({ planes: planesModel([plane("alpha")]), dialog: { kind: "launcher", planeId: "alpha" } });
+    await launch("alpha", null);
+    await launch("alpha", "claude");
+    expect(backend.called("session_open").map((c) => c.args)).toEqual([
+      { planeId: "alpha", agent: null },
+      { planeId: "alpha", agent: { kind: "claude", resume: null, cwd: null } },
+    ]);
+    expect(state().activeTab.alpha).toBe(7);
+    expect(state().dialog).toBeNull();
+  });
+
+  it("opens once the selected plane's last tab closes", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a")]),
+      sessions: sessionsById(session(44, "a")),
+      fileTabs: { a: [{ planeId: "a", path: "x.ts", mode: "file", pinned: true }] },
+      selectedPlaneId: "a",
+    });
+    applySession({ id: 44, session: null });
+    expect(state().dialog).toBeNull();
+    closeFileTab("a", "file:x.ts");
+    expect(state().dialog).toEqual({ kind: "launcher", planeId: "a" });
+  });
+
+  it("opens when the last session of the selected plane closes", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a")]),
+      sessions: sessionsById(session(45, "a")),
+      selectedPlaneId: "a",
+    });
+    applySession({ id: 45, session: null });
+    expect(state().dialog).toEqual({ kind: "launcher", planeId: "a" });
+  });
+
+  it("stays shut for a plane in the background, and over another dialog", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a"), plane("b")]),
+      sessions: sessionsById(session(41, "a"), session(42, "b"), session(43, "b")),
+      selectedPlaneId: "b",
+    });
+    applySession({ id: 41, session: null });
+    expect(state().dialog).toBeNull();
+    useStore.setState({ dialog: { kind: "palette" } });
+    applySession({ id: 42, session: null });
+    applySession({ id: 43, session: null });
+    expect(state().dialog).toEqual({ kind: "palette" });
+  });
+});
+
 describe("event ordering", () => {
   it("doesn't revive a session that closed before session_open replied", async () => {
     mockBackend({
@@ -113,8 +175,7 @@ describe("event ordering", () => {
       },
     });
     seed({ planes: planesModel([plane("alpha")]) });
-    selectPlane("alpha");
-    await flush();
+    await openSession("alpha");
     expect(state().sessions[21]).toBeUndefined();
   });
 
@@ -127,8 +188,7 @@ describe("event ordering", () => {
       },
     });
     seed({ planes: planesModel([plane("alpha")]) });
-    selectPlane("alpha");
-    await flush();
+    await openSession("alpha");
     expect(state().sessions[22]).toEqual(exited);
   });
 });
@@ -387,24 +447,24 @@ describe("renaming sessions", () => {
 });
 
 describe("create outcomes", () => {
-  it("selects the new plane and opens a session on success", async () => {
-    const backend = mockBackend({ session_open: () => session(3, "feat") });
+  it("selects the new plane and opens the launcher on success", async () => {
+    const backend = mockBackend();
     seed({ creates: { feat: createInfo("feat") } });
     applyCreate({ id: "feat", create: createInfo("feat", { status: { kind: "succeeded" } }) });
     await flush();
     expect(backend.called("plane_create_dismiss")[0]?.args).toEqual({ id: "feat" });
     expect(state().selectedPlaneId).toBe("feat");
-    expect(backend.called("session_open")).toHaveLength(1);
+    expect(state().dialog).toEqual({ kind: "launcher", planeId: "feat" });
   });
 
   it("keeps the log and shows the banner when a script failed", async () => {
-    const backend = mockBackend({ session_open: () => session(3, "feat") });
+    const backend = mockBackend();
     seed({ creates: { feat: createInfo("feat") } });
     applyCreate({ id: "feat", create: createInfo("feat", { status: { kind: "scriptFailed" } }) });
     await flush();
     expect(state().scriptFailed.feat).toBe(true);
     expect(backend.called("plane_create_dismiss")).toHaveLength(0);
-    expect(backend.called("session_open")).toHaveLength(1);
+    expect(state().dialog).toEqual({ kind: "launcher", planeId: "feat" });
   });
 
   it("reopens the dialog with the entries when nothing was created", async () => {
@@ -503,7 +563,13 @@ it("zooms within bounds and resets to 12 px", () => {
 describe("the session daemon", () => {
   it("loads its status on connect and follows changes", async () => {
     mockBackend({
-      snapshot: () => ({ planes: planesModel([]), sessions: [], creates: [] }),
+      snapshot: () => ({
+        planes: planesModel([]),
+        sessions: [],
+        agents: [],
+        agentKinds: [],
+        creates: [],
+      }),
       daemon_status: () => ({ kind: "failed", message: "timed out", log: "/s/sessiond.log" }),
     });
     const stop = await connect();
@@ -524,5 +590,81 @@ describe("the session daemon", () => {
     await flush();
     expect(state().daemon).toEqual(connected);
     stop();
+  });
+});
+
+describe("agents", () => {
+  it("loads them and their kinds with the snapshot and follows their changes", async () => {
+    mockBackend({
+      snapshot: () => ({
+        planes: planesModel([]),
+        sessions: [],
+        agents: [agent("a1", "key-1")],
+        agentKinds: [{ kind: "claude", available: true, error: null }],
+        creates: [],
+      }),
+    });
+    const stop = await connect();
+    expect(state().agents.a1?.state).toEqual({ kind: "idle" });
+    expect(state().agentKinds).toEqual([{ kind: "claude", available: true, error: null }]);
+
+    const missing = { kind: "claude", available: false, error: "claude not found on PATH" };
+    await emit("agent-kinds-changed", [missing]);
+    await flush();
+    expect(state().agentKinds).toEqual([missing]);
+
+    await emit("agent-changed", {
+      agentSession: "a1",
+      agent: agent("a1", "key-1", { state: { kind: "busy" } }),
+    });
+    await flush();
+    expect(state().agents.a1?.state).toEqual({ kind: "busy" });
+    await emit("agent-changed", { agentSession: "a1", agent: null });
+    await flush();
+    expect(state().agents).toEqual({});
+    stop();
+  });
+
+  it("resumes an agent session in a new session of its plane", async () => {
+    const backend = mockBackend({ session_open: () => session(3, "alpha") });
+    const a1 = agent("a1", null, { state: { kind: "exited" }, cwd: "/planes/alpha/api" });
+    seed({ planes: planesModel([plane("alpha")]), agents: { a1 } });
+    await resumeAgent(a1, "alpha");
+    expect(backend.called("session_open")[0]?.args).toEqual({
+      planeId: "alpha",
+      agent: { kind: "claude", resume: "a1", cwd: "/planes/alpha/api" },
+    });
+    expect(state().activeTab.alpha).toBe(3);
+  });
+
+  it("shows the tab of an agent session that is already running", async () => {
+    const backend = mockBackend();
+    seed({
+      planes: planesModel([plane("alpha"), plane("beta")]),
+      sessions: sessionsById(session(1, "alpha"), session(2, "beta")),
+      agents: { a1: agent("a1", "key-2", { state: { kind: "busy" } }) },
+      selectedPlaneId: "alpha",
+    });
+    await resumeAgent(agent("a1", null, { state: { kind: "exited" } }), "alpha");
+    expect(backend.called("session_open")).toHaveLength(0);
+    expect(state().selectedPlaneId).toBe("beta");
+    expect(state().activeTab.beta).toBe(2);
+  });
+
+  it("shows where it runs when the daemon refuses a second resume", async () => {
+    mockBackend({
+      session_open: () => {
+        useStore.setState({ agents: { a1: agent("a1", "key-2", { state: { kind: "busy" } }) } });
+        throw "that agent session is already running in another session";
+      },
+    });
+    seed({
+      planes: planesModel([plane("alpha"), plane("beta")]),
+      sessions: sessionsById(session(1, "alpha"), session(2, "beta")),
+      agents: { a1: agent("a1", null, { state: { kind: "exited" } }) },
+    });
+    await resumeAgent(agent("a1", null, { state: { kind: "exited" } }), "alpha");
+    expect(state().activeTab.beta).toBe(2);
+    expect(state().notice).toBe("That agent session is already running in this tab.");
   });
 });

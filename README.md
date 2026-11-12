@@ -10,9 +10,13 @@ The v1 spec is the source of truth for behaviour; vocabulary lives in [`GLOSSARY
 - `bp` 0.1.0 or newer on your login shell's `PATH`
 - Node 26 (`.nvmrc`), pnpm 12, and the Rust toolchain pinned in `rust-toolchain.toml`
 
-## Restoring sessions
+## Sessions and agents
 
-Quitting keeps your tabs: on the next launch each one reopens with a fresh shell in its plane. To also get back the Claude Code sessions running in them, run **Enable agent resume** from the palette (⌘P) once. It adds hooks to `~/.claude/settings.json` that record which Claude Code session each tab runs, and the restored tab types `claude --resume <id>` for you. The hooks do nothing outside the app. Programs other than Claude Code, and scrollback, aren't restored (ADR 0005).
+Sessions run in the bundled session daemon, `bitplane-sessiond`: quitting cc leaves them running, and the next launch reattaches every tab, scrollback included. A Claude terminal runs Claude Code itself instead of a shell, and its tab shows the agent's state (idle, busy, waiting, resuming, exited), with nothing installed in `~/.claude/settings.json`. When Claude Code exits, the tab stays with its last screen: **Resume** continues the conversation, **OK** closes the tab. When the daemon itself restarts, regular tabs come back with fresh shells and running Claude terminals resume their conversations. "+" and ⌘T open the launcher, which starts a terminal, a Claude terminal, or a Claude Code session of this plane whose tab is gone; an empty plane opens it by itself. Each tab shows its kind as an icon with the agent's state as a badge; holding ⌘ shows the tab numbers instead. The palette (⌘P) also resumes Claude Code sessions of other planes.
+
+If a tab says Claude Code's hooks are blocked, its settings set `disableAllHooks` or `allowManagedHooksOnly`; the agent's state then lags a few seconds.
+
+The first launch after upgrading from a cc without the daemon reopens its old tabs, those that ran Claude Code as Claude terminals resuming their conversations, and removes the old cc's hooks from `~/.claude/settings.json`.
 
 ## Development
 

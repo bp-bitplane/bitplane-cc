@@ -1,6 +1,6 @@
 //! Files cc writes atomically, and the sessions cc restored itself before the
-//! daemon owned them (ADR 0005, superseded by 0028): `<app data>/sessions.json`
-//! is no longer written, only kept for the Agents section to import.
+//! daemon owned them (ADR 0005, superseded by 0028): `<app data>/sessions.json`,
+//! which the first launch on the daemon imports (`migrate`).
 
 use std::path::{Path, PathBuf};
 
@@ -20,9 +20,9 @@ pub struct Entry {
 }
 
 #[derive(Serialize, Deserialize)]
-struct File {
+struct File<E> {
     version: u32,
-    sessions: Vec<Entry>,
+    sessions: E,
 }
 
 /// The entries in creation order; a missing, garbled or newer file is empty.
@@ -30,7 +30,7 @@ pub fn load(path: &Path) -> Vec<Entry> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
-    match serde_json::from_str::<File>(&text) {
+    match serde_json::from_str::<File<Vec<Entry>>>(&text) {
         Ok(file) if file.version == VERSION => {
             let mut sessions = file.sessions;
             sessions.sort_by_key(|e| e.seq);
@@ -38,6 +38,15 @@ pub fn load(path: &Path) -> Vec<Entry> {
         }
         _ => Vec::new(),
     }
+}
+
+/// What is left of an import that stopped part way.
+pub fn store(path: &Path, sessions: &[Entry]) -> std::io::Result<()> {
+    let file = File {
+        version: VERSION,
+        sessions,
+    };
+    write_atomic(path, &serde_json::to_vec(&file).expect("entries serialize"))
 }
 
 /// A crash mid-write leaves the previous file, never a torn one.
@@ -70,11 +79,7 @@ mod tests {
     fn loads_in_creation_order() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("data/sessions.json");
-        let file = File {
-            version: VERSION,
-            sessions: vec![entry("b", 2), entry("a", 1)],
-        };
-        write_atomic(&path, &serde_json::to_vec(&file).unwrap()).unwrap();
+        store(&path, &[entry("b", 2), entry("a", 1)]).unwrap();
         assert_eq!(load(&path), [entry("a", 1), entry("b", 2)]);
         assert!(!dir.path().join("data/sessions.json.tmp").exists());
     }

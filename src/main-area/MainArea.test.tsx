@@ -1,7 +1,15 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { openFileTab, selectSession, useStore } from "../store/store";
-import { mockBackend, plane, planesModel, seed, session, sessionsById } from "../test/fixtures";
+import {
+  agent,
+  mockBackend,
+  plane,
+  planesModel,
+  seed,
+  session,
+  sessionsById,
+} from "../test/fixtures";
 import { MainArea } from "./MainArea";
 
 vi.mock("../file-tab/DiffView", () => ({
@@ -38,6 +46,29 @@ describe("MainArea", () => {
     selectSession("a", 1);
     expect(await screen.findByTestId("terminals")).toHaveAttribute("data-visible", "1");
     expect(screen.queryByTestId("diff-view")).toBeNull();
+  });
+
+  it("shows the shown tab's agent errors above the terminal", () => {
+    useStore.setState({
+      activeTab: { a: 1 },
+      agents: {
+        x: agent("x", "key-1", {
+          polled: true,
+          lastError: { error: "rate_limit", message: "Rate limit reached" },
+        }),
+      },
+    });
+    render(<MainArea />);
+    const alerts = screen.getAllByRole("alert").map((a) => a.textContent);
+    expect(alerts).toEqual([
+      "Claude Code's hooks are blocked by its settings (disableAllHooks or allowManagedHooksOnly), so this agent's state is polled and may lag a few seconds.",
+      "The agent's last turn failed (rate_limit): Rate limit reached",
+    ]);
+
+    act(() =>
+      useStore.setState({ agents: { x: agent("x", "key-1", { state: { kind: "busy" } }) } }),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("keeps the tab bar for a plane with only File tabs", () => {

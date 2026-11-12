@@ -1,21 +1,28 @@
 import { useState } from "react";
-import { sessionsOf } from "../store/selectors";
-import { closeDialog, openAgentResume, selectPlane, useStore } from "../store/store";
+import { resumableAgents, sessionsOf } from "../store/selectors";
+import { closeDialog, resumeAgent, selectPlane, useStore } from "../store/store";
 import { PlaneBadges } from "../ui/Badges";
 import { Modal } from "./Modal";
 import styles from "./Palette.module.css";
 
-const ACTIONS = [{ label: "Enable agent resume", run: openAgentResume }];
-
 /** ⌘P: filter plane ids and actions by substring, ↑/↓ to move, Enter to pick. */
 export function Palette() {
-  const rows = useStore((s) => s.planes.planes);
+  const planes = useStore((s) => s.planes);
+  const rows = planes.planes;
   const sessions = useStore((s) => s.sessions);
+  const agents = useStore((s) => s.agents);
+  const resumable = resumableAgents({ agents, planes });
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const needle = query.trim().toLowerCase();
   const matches = rows.filter((p) => p.id.includes(needle));
-  const actions = ACTIONS.filter((a) => a.label.toLowerCase().includes(needle));
+  const actions = resumable
+    .map(({ agent, planeId }) => ({
+      key: agent.agentSession,
+      label: `Resume agent session ${agent.name ?? agent.agentSession} in ${planeId}`,
+      run: () => resumeAgent(agent, planeId),
+    }))
+    .filter((a) => a.label.toLowerCase().includes(needle));
   const total = matches.length + actions.length;
   const pick = (i: number) => {
     const plane = matches[i];
@@ -74,7 +81,7 @@ export function Palette() {
           const i = matches.length + j;
           return (
             <div
-              key={action.label}
+              key={action.key}
               role="option"
               tabIndex={-1}
               aria-selected={i === index}

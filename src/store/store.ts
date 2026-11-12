@@ -4,7 +4,10 @@
  */
 import { create } from "zustand";
 import {
-  type AgentHooks,
+  type AgentEvent,
+  type AgentInfo,
+  type AgentKindInfo,
+  type AgentOpen,
   type CreateArgs,
   type CreateEvent,
   type CreateInfo,
@@ -33,6 +36,7 @@ import {
   activeTabId,
   fileTabsOf,
   findPlane,
+  sessionOfAgent,
   sessionsOf,
   shownPlaneId,
   tabsOf,
@@ -51,6 +55,7 @@ export const MAX_SIDEBAR_WIDTH = 480;
 
 export type Dialog =
   | { kind: "palette" }
+  | { kind: "launcher"; planeId: string }
   | {
       kind: "create";
       initial: CreateArgs | null;
@@ -59,7 +64,6 @@ export type Dialog =
     }
   | { kind: "createLog"; planeId: string }
   | { kind: "confirmClose"; sessionId: number; processName: string }
-  | { kind: "agentResume"; hooks: AgentHooks | null; error: string | null }
   | { kind: "daemonInfo"; info: DaemonInfo | null };
 
 /** A Session tab by session id, or a File tab by its key within the plane. */
@@ -78,6 +82,10 @@ export interface State {
   platform: Platform;
   planes: PlanesModel;
   sessions: Record<number, SessionInfo>;
+  /** Agents by their agent session id; a tab finds its own by its `key`. */
+  agents: Record<string, AgentInfo>;
+  /** The agent kinds the daemon can launch, or why not; the launcher lists them. */
+  agentKinds: AgentKindInfo[];
   creates: Record<string, CreateInfo>;
   /** New plane id → the plane it duplicates, while its create runs. */
   duplicates: Record<string, string>;
@@ -129,6 +137,8 @@ export const initialState = (): State => ({
     planes: [],
   },
   sessions: {},
+  agents: {},
+  agentKinds: [],
   creates: {},
   duplicates: {},
   selectedPlaneId: null,
@@ -182,6 +192,8 @@ export async function connect(): Promise<() => void> {
   const unlisten = await Promise.all([
     events.planesChanged.listen((e) => applyPlanes(e.payload)),
     events.sessionChanged.listen((e) => applySession(e.payload)),
+    events.agentChanged.listen((e) => applyAgent(e.payload)),
+    events.agentKindsChanged.listen((e) => set({ agentKinds: e.payload })),
     events.createChanged.listen((e) => applyCreate(e.payload)),
     events.sourceControlChanged.listen((e) => applySourceControl(e.payload)),
     events.filesChanged.listen((e) => applyFilesChanged(e.payload)),
@@ -232,12 +244,20 @@ export function saveUiStateOnChange(): () => void {
 
 export function loadSnapshot(snapshot: Snapshot): void {
   const sessions = Object.fromEntries(snapshot.sessions.map((s) => [s.id, s]));
+  const agents = Object.fromEntries(snapshot.agents.map((a) => [a.agentSession, a]));
   const creates = Object.fromEntries(snapshot.creates.map((c) => [c.id, c]));
   const scriptFailed: Record<string, true> = {};
   for (const create of snapshot.creates) {
     if (create.status.kind === "scriptFailed") scriptFailed[create.id] = true;
   }
-  set({ planes: snapshot.planes, sessions, creates, scriptFailed });
+  set({
+    planes: snapshot.planes,
+    sessions,
+    agents,
+    agentKinds: snapshot.agentKinds,
+    creates,
+    scriptFailed,
+  });
 }
 
 export function applyPlanes(planes: PlanesModel): void {
@@ -252,6 +272,7 @@ export function applySession({ id, session }: SessionEvent): void {
     if (!previous) return;
     const { [id]: _, ...sessions } = state.sessions;
     set({ sessions, activeTab: activeAfterClosing(state, previous.planeId, id) });
+    launchIfEmptied(previous.planeId);
     return;
   }
   const activeTab =
@@ -259,6 +280,13 @@ export function applySession({ id, session }: SessionEvent): void {
       ? state.activeTab
       : { ...state.activeTab, [session.planeId]: id };
   set({ sessions: { ...state.sessions, [id]: session }, activeTab });
+}
+
+export function applyAgent({ agentSession, agent }: AgentEvent): void {
+  set((state) => {
+    const { [agentSession]: _, ...agents } = state.agents;
+    return { agents: agent ? { ...agents, [agentSession]: agent } : agents };
+  });
 }
 
 export function applyCreate({ id, create }: CreateEvent): void {
@@ -282,7 +310,7 @@ export function selectPlane(planeId: string): void {
   // A plane missing from the list was most likely just created and isn't
   // listed yet; the backend still knows where its root is.
   const openable = !plane || plane.kind === "plane" || plane.kind === "draft";
-  if (openable && sessionsOf(state, planeId).length === 0) void openSession(planeId);
+  if (openable && tabsOf(state, planeId).length === 0) openLauncher(planeId);
 }
 
 export function selectSession(planeId: string, sessionId: number): void {
@@ -297,12 +325,16 @@ export function selectTab(planeId: string, id: TabId): void {
   }));
 }
 
-export async function openSession(planeId = get().selectedPlaneId): Promise<void> {
+/** Open a session in the plane: a Claude terminal running `agent`, else a regular one. */
+export async function openSession(
+  planeId = get().selectedPlaneId,
+  agent: AgentOpen | null = null,
+): Promise<void> {
   if (!planeId) return;
   const plane = findPlane(get(), planeId);
   if (plane && (plane.kind === "gone" || plane.kind === "creating")) return;
   try {
-    const session = await commands.sessionOpen(planeId);
+    const session = await commands.sessionOpen(planeId, agent);
     // Events are authoritative; the reply only fills in when none arrived yet.
     if (!get().sessions[session.id] && !closedSessions.has(session.id)) {
       applySession({ id: session.id, session });
@@ -310,8 +342,34 @@ export async function openSession(planeId = get().selectedPlaneId): Promise<void
     if (closedSessions.has(session.id)) return;
     set((state) => ({ activeTab: { ...state.activeTab, [planeId]: session.id } }));
   } catch (error) {
-    set({ notice: String(error) });
+    const live = agent?.resume != null && showLiveAgent(agent.resume);
+    set({ notice: live ? "That agent session is already running in this tab." : String(error) });
   }
+}
+
+/**
+ * Resume a past agent session in a new Claude terminal of `planeId`, where
+ * it ran. One already running somewhere is shown instead: an agent session
+ * never runs twice.
+ */
+export async function resumeAgent(agent: AgentInfo, planeId: string): Promise<void> {
+  closeDialog();
+  if (showLiveAgent(agent.agentSession)) return;
+  await openSession(planeId, { kind: agent.kind, resume: agent.agentSession, cwd: agent.cwd });
+}
+
+/** "+", ⌘T and the empty-plane view: what to start in the plane. */
+export function openLauncher(planeId = get().selectedPlaneId): void {
+  if (!planeId) return;
+  const plane = findPlane(get(), planeId);
+  if (plane && (plane.kind === "gone" || plane.kind === "creating")) return;
+  set({ dialog: { kind: "launcher", planeId } });
+}
+
+/** From the launcher: a regular terminal, or a new agent terminal of `kind`. */
+export async function launch(planeId: string, kind: string | null): Promise<void> {
+  closeDialog();
+  await openSession(planeId, kind === null ? null : { kind, resume: null, cwd: null });
 }
 
 /** Close a session, asking first when something other than the shell runs. */
@@ -436,6 +494,7 @@ export function closeFileTab(planeId: string, key: FileTabKey): void {
       [planeId]: fileTabsOf(state, planeId).filter((tab) => fileTabKey(tab) !== key),
     },
   }));
+  launchIfEmptied(planeId);
 }
 
 export function goToTab(position: number): void {
@@ -718,27 +777,6 @@ export async function openInVscode(planeId: string): Promise<void> {
   }
 }
 
-export async function openAgentResume(): Promise<void> {
-  set({ dialog: { kind: "agentResume", hooks: null, error: null } });
-  try {
-    const hooks = await commands.agentHooksDescribe();
-    set({ dialog: { kind: "agentResume", hooks, error: null } });
-  } catch (error) {
-    set({ dialog: { kind: "agentResume", hooks: null, error: String(error) } });
-  }
-}
-
-export async function installAgentHooks(): Promise<void> {
-  try {
-    await commands.agentHooksInstall();
-    set({ dialog: null, notice: "Agent resume is enabled for new Claude Code sessions." });
-  } catch (error) {
-    const dialog = get().dialog;
-    const hooks = dialog?.kind === "agentResume" ? dialog.hooks : null;
-    set({ dialog: { kind: "agentResume", hooks, error: String(error) } });
-  }
-}
-
 function clampFontSize(size: number): number {
   return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, size));
 }
@@ -753,6 +791,22 @@ function clampSidebarWidth(width: number): number {
 
 function clampWidth(width: number, min: number, max: number): number {
   return Math.round(Math.min(max, Math.max(min, width)));
+}
+
+/** The selected plane's last tab closed: offer what to start next, unless a dialog is up. */
+function launchIfEmptied(planeId: string): void {
+  const state = get();
+  if (state.selectedPlaneId !== planeId || state.dialog !== null) return;
+  if (tabsOf(state, planeId).length === 0) openLauncher(planeId);
+}
+
+/** Select the tab the agent session runs in, if it runs in one. */
+function showLiveAgent(agentSession: string): boolean {
+  const state = get();
+  const session = sessionOfAgent(state, agentSession);
+  if (!session) return false;
+  selectSession(session.planeId, session.id);
+  return true;
 }
 
 function activeSessionId(): number | undefined {

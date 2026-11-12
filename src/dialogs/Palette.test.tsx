@@ -1,7 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useStore } from "../store/store";
-import { mockBackend, plane, planesModel, seed, session, sessionsById } from "../test/fixtures";
+import {
+  agent,
+  flush,
+  mockBackend,
+  plane,
+  planesModel,
+  seed,
+  session,
+  sessionsById,
+} from "../test/fixtures";
 import { Palette } from "./Palette";
 
 describe("Palette", () => {
@@ -23,7 +32,7 @@ describe("Palette", () => {
     ]);
     await userEvent.keyboard("{ArrowDown}{Enter}");
     expect(useStore.getState().selectedPlaneId).toBe("kiosk");
-    expect(useStore.getState().dialog).toBeNull();
+    expect(useStore.getState().dialog).toEqual({ kind: "launcher", planeId: "kiosk" });
   });
 
   it("shows session counts and findings", () => {
@@ -32,14 +41,28 @@ describe("Palette", () => {
     expect(screen.getByRole("img", { name: "findings" })).toBeInTheDocument();
   });
 
-  it("offers enabling agent resume", async () => {
-    const backend = mockBackend({
-      agent_hooks_describe: () => ({ path: "/s.json", status: "missing", entries: "{}" }),
+  it("resumes an agent session that exited, in the plane it ran in", async () => {
+    const backend = mockBackend({ session_open: () => session(5, "kiosk") });
+    useStore.setState({
+      agents: {
+        gone: agent("gone", null, { state: { kind: "exited" }, cwd: "/planes/kiosk/api" }),
+        live: agent("live", "key-1", { cwd: "/planes/kiosk" }),
+        elsewhere: agent("elsewhere", null, { state: { kind: "exited" }, cwd: "/tmp" }),
+      },
     });
     render(<Palette />);
-    await userEvent.keyboard("resume{Enter}");
-    expect(backend.called("agent_hooks_describe")).toHaveLength(1);
-    expect(useStore.getState().dialog?.kind).toBe("agentResume");
+    await userEvent.keyboard("resume");
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Resume agent session gone in kiosk",
+    ]);
+    await userEvent.keyboard("{Enter}");
+    await flush();
+    expect(backend.called("session_open")[0]?.args).toEqual({
+      planeId: "kiosk",
+      agent: { kind: "claude", resume: "gone", cwd: "/planes/kiosk/api" },
+    });
+    expect(useStore.getState().activeTab.kiosk).toBe(5);
+    expect(useStore.getState().dialog).toBeNull();
   });
 
   it("says when nothing matches and closes on Escape", async () => {

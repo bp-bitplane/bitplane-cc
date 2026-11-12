@@ -5,13 +5,13 @@ import { CreateProgress } from "../create-plane/CreateProgress";
 import { FileTabView } from "../file-tab/FileTabView";
 import type { AppStatus } from "../ipc";
 import { labelFor } from "../keymap";
-import { activeFileTab, activeSession, findPlane, tabsOf } from "../store/selectors";
+import { activeFileTab, activeSession, agentOf, findPlane, tabsOf } from "../store/selectors";
 import {
   dismissCreate,
   dismissNotice,
   openCreateDialog,
   openDialog,
-  openSession,
+  openLauncher,
   refresh,
   retryDaemon,
   type State,
@@ -145,12 +145,12 @@ function Screen({ view }: { view: MainView }) {
         <Centered
           title={`No sessions in ${planeId}`}
           actions={
-            <button type="button" className="primary" onClick={() => void openSession(planeId)}>
+            <button type="button" className="primary" onClick={() => openLauncher(planeId)}>
               New session
             </button>
           }
         >
-          <p>Press {labelFor(platform, "newTab")} to start a shell in the plane root.</p>
+          <p>Press {labelFor(platform, "newTab")} to start a terminal or an agent in the plane.</p>
         </Centered>
       );
     default:
@@ -218,6 +218,10 @@ function Banners(): ReactNode[] {
   const scriptFailed = useStore((s) => (planeId ? Boolean(s.scriptFailed[planeId]) : false));
   const notice = useStore((s) => s.notice);
   const daemon = useStore((s) => s.daemon);
+  const agent = useStore((s) => {
+    const session = activeSession(s, planeId);
+    return session ? agentOf(s, session) : undefined;
+  });
   const banners: ReactNode[] = [];
   if (daemon.kind === "failed") {
     banners.push(
@@ -270,6 +274,27 @@ function Banners(): ReactNode[] {
         >
           <X size={13} />
         </button>
+      </div>,
+    );
+  }
+  if (agent?.polled && agent.state.kind !== "exited") {
+    banners.push(
+      <div key="agentPolled" className={styles.warning} role="alert">
+        <span>
+          Claude Code's hooks are blocked by its settings (<code>disableAllHooks</code> or{" "}
+          <code>allowManagedHooksOnly</code>), so this agent's state is polled and may lag a few
+          seconds.
+        </span>
+      </div>,
+    );
+  }
+  if (agent?.lastError) {
+    const { error, message } = agent.lastError;
+    banners.push(
+      <div key="agentError" className={styles.danger} role="alert">
+        <span>
+          The agent's last turn failed ({error}){message && <>: {message}</>}
+        </span>
       </div>,
     );
   }
