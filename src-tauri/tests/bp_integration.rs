@@ -243,7 +243,7 @@ fn args(id: &str) -> CreateArgs {
             spec: "@sos/api".into(),
             branch: None,
         }],
-        intent: BranchIntent::Auto,
+        intent: BranchIntent::Resolve,
         no_fetch: false,
         no_scripts: false,
     }

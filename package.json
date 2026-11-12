@@ -20,6 +20,7 @@
     "test": "pnpm sidecar && vitest run && scripts/build-env.sh cargo test --manifest-path src-tauri/Cargo.toml",
     "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test",
     "tauri": "tauri",
+    "bp-contract": "cp \"${BITPLANE_CLI:-../bitplane-cli}/crates/bitplane-core/bp-contract.ts\" src/ipc/bp-contract.ts",
     "dmg": "pnpm sidecar && scripts/build-env.sh pnpm tauri build --bundles dmg"
   },
   "dependencies": {

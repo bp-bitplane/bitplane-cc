@@ -29,8 +29,9 @@ pub struct Bp {
     pub planes_dir: PathBuf,
 }
 
-/// bp's failure envelope, the last line of stderr.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// bp's failure envelope, the last line of stderr. Only the fields the app
+/// reads; the frontend gets bp's own `ErrorEnvelope` type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Envelope {
     pub error: String,
     pub code: i32,
@@ -41,11 +42,23 @@ pub struct Envelope {
     pub remedy: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Problem {
     #[serde(default)]
     pub subject: Option<String>,
     pub message: String,
+}
+
+impl Type for Envelope {
+    fn definition(_: &mut specta::Types) -> specta::datatype::DataType {
+        contract_type("ErrorEnvelope")
+    }
+}
+
+/// A type `src/ipc/bp-contract.ts` defines, generated from bp's wire types:
+/// `bindings.ts` points at it instead of keeping a copy that drifts.
+pub fn contract_type(name: &str) -> specta::datatype::DataType {
+    specta_typescript::define(format!("import(\"./bp-contract\").{name}")).into()
 }
 
 /// What one bp run left behind.

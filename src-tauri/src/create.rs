@@ -36,12 +36,19 @@ pub struct Member {
     pub branch: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
+/// bp's own `BranchIntent`, spelled as bp spells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BranchIntent {
-    Auto,
-    New,
-    Existing,
+    Resolve,
+    RequireNew,
+    RequireExisting,
+}
+
+impl Type for BranchIntent {
+    fn definition(_: &mut specta::Types) -> specta::datatype::DataType {
+        bp::contract_type("BranchIntent")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Type)]
@@ -341,13 +348,13 @@ pub fn argv(args: &CreateArgs) -> Vec<String> {
         args.id.clone(),
     ]);
     match args.intent {
-        BranchIntent::Auto => {}
-        BranchIntent::New => argv.push("--new-branch".into()),
-        BranchIntent::Existing => argv.push("--existing-branch".into()),
+        BranchIntent::Resolve => {}
+        BranchIntent::RequireNew => argv.push("--new-branch".into()),
+        BranchIntent::RequireExisting => argv.push("--existing-branch".into()),
     }
     // bp refuses --no-fetch with its default intent, so the dialog only
     // offers it with New or Existing.
-    if args.no_fetch && args.intent != BranchIntent::Auto {
+    if args.no_fetch && args.intent != BranchIntent::Resolve {
         argv.push("--no-fetch".into());
     }
     if args.no_scripts {
@@ -433,7 +440,7 @@ mod tests {
                     branch: Some("main".into()),
                 },
             ],
-            intent: BranchIntent::Auto,
+            intent: BranchIntent::Resolve,
             no_fetch: false,
             no_scripts: false,
         }
@@ -473,7 +480,7 @@ mod tests {
             ]
         );
         let mut all = args();
-        all.intent = BranchIntent::New;
+        all.intent = BranchIntent::RequireNew;
         all.no_fetch = true;
         all.no_scripts = true;
         assert_eq!(
@@ -481,7 +488,7 @@ mod tests {
             ["--new-branch", "--no-fetch", "--no-scripts"]
         );
         let mut existing = args();
-        existing.intent = BranchIntent::Existing;
+        existing.intent = BranchIntent::RequireExisting;
         assert_eq!(argv(&existing)[7..], ["--existing-branch"]);
     }
 
