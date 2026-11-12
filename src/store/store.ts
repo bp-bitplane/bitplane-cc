@@ -14,7 +14,7 @@ import {
   commands,
   type DaemonInfo,
   type DaemonStatus,
-  type Envelope,
+  type ErrorEnvelope,
   events,
   type FilesEvent,
   type FileTabsEvent,
@@ -72,7 +72,7 @@ export type TabId = number | FileTabKey;
 export type DiffStyle = "unified" | "split";
 
 export interface CreateFailure {
-  envelope: Envelope | null;
+  envelope: ErrorEnvelope | null;
   /** bp's log, shown for `create_aborted`. */
   log: string | null;
   retryable: boolean;
@@ -549,7 +549,7 @@ export function openDuplicateDialog(plane: PlaneRow): void {
         id: "",
         branch: "",
         members: plane.members.map((spec) => ({ spec, branch: null })),
-        intent: "auto",
+        intent: "resolve",
         noFetch: false,
         noScripts: false,
       },
