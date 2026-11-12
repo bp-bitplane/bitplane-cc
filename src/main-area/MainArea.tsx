@@ -281,8 +281,9 @@ function Banners(): ReactNode[] {
     banners.push(
       <div key="agentPolled" className={styles.warning} role="alert">
         <span>
-          Agent hooks didn't load; your shell may be overriding PATH. This agent's state is polled
-          and may lag a few seconds.
+          Claude Code's hooks are blocked by its settings (<code>disableAllHooks</code> or{" "}
+          <code>allowManagedHooksOnly</code>), so this agent's state is polled and may lag a few
+          seconds.
         </span>
       </div>,
     );

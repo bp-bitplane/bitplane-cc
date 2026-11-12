@@ -61,7 +61,7 @@ describe("MainArea", () => {
     render(<MainArea />);
     const alerts = screen.getAllByRole("alert").map((a) => a.textContent);
     expect(alerts).toEqual([
-      "Agent hooks didn't load; your shell may be overriding PATH. This agent's state is polled and may lag a few seconds.",
+      "Claude Code's hooks are blocked by its settings (disableAllHooks or allowManagedHooksOnly), so this agent's state is polled and may lag a few seconds.",
       "The agent's last turn failed (rate_limit): Rate limit reached",
     ]);
 

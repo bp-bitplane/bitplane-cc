@@ -1,6 +1,7 @@
-//! cc's agent state, resume and the first-launch import against a real
-//! bitplane-sessiond with its `agent.claude` module, served in-process, and a
-//! fake `claude` on `PATH`. The module's hooks run the bundled daemon binary.
+//! cc's Claude terminals, agent state, resume and the first-launch import
+//! against a real bitplane-sessiond with its `agent` module, served
+//! in-process. Claude terminals launch a fake `claude`, the only one on the
+//! `PATH` the test controls; its hooks run the bundled daemon binary.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -11,7 +12,8 @@ use bitplane_cc_lib::agents::{AgentEvent, AgentInfo, AgentState, Agents};
 use bitplane_cc_lib::daemon::{DaemonLink, DaemonStatus};
 use bitplane_cc_lib::migrate::{self, Legacy};
 use bitplane_cc_lib::sessions::{
-    OpenOptions, OutputSink, SessionConfig, SessionError, SessionId, SessionInfo, Sessions,
+    AgentOpen, OpenOptions, OutputSink, SessionConfig, SessionError, SessionInfo, SessionStatus,
+    Sessions,
 };
 use bitplane_sessiond::agent::{Agents as AgentModule, Timing};
 use bitplane_sessiond::env::EnvMap;
@@ -27,11 +29,15 @@ const BUNDLED: &str = concat!(
     env!("CC_TARGET_TRIPLE")
 );
 
-/// Started through the daemon's wrapper it gets `--settings` with the hook
-/// command, starts agent session `$FAKE_CLAUDE_LOG/next-sid` (or the
-/// `--resume` one, a moment later, as the real one does) and then turns each
-/// typed `prompt`, `stop`, `fail` or `quit` line into that hook. It keeps its
-/// `claude agents --json` registry entry in step, in the verified format.
+/// Launched as a Claude terminal's PTY child, it checks its argv is exactly
+/// `--settings <absolute hooks file> [--resume <id>]` with the hook env set,
+/// and exits 64 otherwise. Each launch appends `<cwd> <argv>` to
+/// `$FAKE_CLAUDE_LOG/calls`. It starts agent session `$FAKE_CLAUDE_LOG/next-sid`
+/// (or the `--resume` one, a moment later, as the real one does) and then
+/// turns each typed `prompt`, `stop`, `fail` or `quit [code]` line into that
+/// hook. While `$FAKE_CLAUDE_LOG/no-hooks` exists it runs no hooks, as when
+/// settings block them. It keeps its `claude agents --json` registry entry
+/// in step, in the verified format.
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
 log="$FAKE_CLAUDE_LOG"
 if [ "$1" = agents ] && [ "$2" = --json ]; then
@@ -44,22 +50,23 @@ if [ "$1" = agents ] && [ "$2" = --json ]; then
   printf ']\n'
   exit 0
 fi
-settings=""
-resume=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --settings) settings="$2"; shift ;;
-    --resume) resume="$2"; shift ;;
-  esac
-  shift
-done
-case "$settings" in
-  "") json="" ;;
-  "{"*) json="$settings" ;;
-  *) json=$(cat "$settings") ;;
+echo "$PWD $*" >> "$log/calls"
+bad() {
+  echo "fake-claude: unexpected launch: $*"
+  echo "$*" >> "$log/bad"
+  exit 64
+}
+[ "$1" = --settings ] || bad "$@"
+case "$2" in /*) ;; *) bad "$@" ;; esac
+[ -f "$2" ] || bad "$@"
+case "$#:$3" in
+  2:) resume="" ;;
+  4:--resume) resume="$4" ;;
+  *) bad "$@" ;;
 esac
-hook=$(printf '%s' "$json" | tr ',{}[]' '\n\n\n\n\n' | sed -n 's/.*"command": *"\([^"]*\)".*/\1/p' | grep ' hook$' | head -n 1)
-export CLAUDECODE=1
+[ -n "$BITPLANE_HOOK_TOKEN" ] && [ -n "$BITPLANE_HOOK_SOCKET" ] && [ -n "$BITPLANE_SESSION_ID" ] || bad "no hook env"
+hook=$(tr ',{}[]' '\n\n\n\n\n' < "$2" | sed -n 's/.*"command": *"\([^"]*\)".*/\1/p' | grep ' hook$' | head -n 1)
+[ -f "$log/no-hooks" ] && hook=""
 sid="${resume:-$(cat "$log/next-sid")}"
 entry="$log/registry/$$.json"
 status=idle
@@ -80,91 +87,118 @@ else
   emit SessionStart ',"source":"startup"'
 fi
 while IFS= read -r line; do
-  case "$line" in
-    prompt*) status=busy; reg; emit UserPromptSubmit ',"prompt":"hi"' ;;
-    stop*) status=idle; reg; emit Stop '' ;;
-    fail*) status=idle; reg; emit StopFailure ',"error":"rate_limit","last_assistant_message":"Rate limit reached"' ;;
-    quit*) emit SessionEnd ',"reason":"prompt_input_exit"'; exit 0 ;;
+  set -- $line
+  case "$1" in
+    prompt) status=busy; reg; emit UserPromptSubmit ',"prompt":"hi"' ;;
+    stop) status=idle; reg; emit Stop '' ;;
+    fail) status=idle; reg; emit StopFailure ',"error":"rate_limit","last_assistant_message":"Rate limit reached"' ;;
+    quit) emit SessionEnd ',"reason":"prompt_input_exit"'; exit "${2:-0}" ;;
   esac
 done
 "#;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_tab_follows_its_agents_state_and_last_error() {
+async fn a_claude_terminal_follows_its_agent_and_resumes_after_it_exits() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let tab = cc.open(OpenOptions::default()).await;
     host.next_agent("agent-1");
 
-    cc.type_in(tab.id, "claude\r");
+    let tab = cc.open(Some(claude(None, None))).await;
+    assert_eq!(tab.agent.as_deref(), Some("claude"));
     let agent = cc
         .wait_for_agent("agent-1", |a| a.state == AgentState::Idle)
         .await;
+    assert_eq!(agent.kind, "claude");
     assert_eq!(agent.session.as_deref(), Some(tab.key.as_str()));
     assert!(!agent.polled);
     assert_eq!(agent.cwd, host.plane.display().to_string());
 
-    cc.type_in(tab.id, "prompt\r");
+    cc.type_in(&tab, "prompt\r");
     cc.wait_for_agent("agent-1", |a| a.state == AgentState::Busy)
         .await;
-    cc.type_in(tab.id, "fail\r");
+    cc.type_in(&tab, "fail\r");
     let failed = cc
         .wait_for_agent("agent-1", |a| a.last_error.is_some())
         .await;
     let error = failed.last_error.unwrap();
     assert_eq!(error.error, "rate_limit");
     assert_eq!(error.message.as_deref(), Some("Rate limit reached"));
-
-    cc.type_in(tab.id, "prompt\r");
+    cc.type_in(&tab, "prompt\r");
     cc.wait_for_agent("agent-1", |a| {
         a.state == AgentState::Busy && a.last_error.is_none()
     })
     .await;
-    cc.type_in(tab.id, "quit\r");
+
+    // A clean exit keeps the tab, unlike a shell's.
+    cc.type_in(&tab, "quit\r");
     cc.wait_for_agent("agent-1", |a| a.state == AgentState::Exited)
         .await;
+    let exited = cc
+        .wait_for_session(&tab, |s| s.status == SessionStatus::Exited { code: 0 })
+        .await;
+    assert_eq!(exited.agent.as_deref(), Some("claude"));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(cc.sessions.list().len(), 1);
     assert!(cc.events().iter().any(|e| e.agent_session == "agent-1"));
+
+    // Resume: `session.restart` relaunches the linked agent session.
+    cc.sessions.restart(tab.id).await.unwrap();
+    let resumed = cc
+        .wait_for_agent("agent-1", |a| a.state == AgentState::Idle)
+        .await;
+    assert_eq!(resumed.session.as_deref(), Some(tab.key.as_str()));
+    assert!(
+        host.calls().ends_with(" --resume agent-1\n"),
+        "{}",
+        host.calls()
+    );
+
+    cc.type_in(&tab, "quit 3\r");
+    cc.wait_for_session(&tab, |s| s.status == SessionStatus::Exited { code: 3 })
+        .await;
+    assert_eq!(host.bad(), "");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_agent_without_hooks_is_polled() {
+async fn an_agent_whose_hooks_are_blocked_is_polled() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
-    let tab = cc.open(OpenOptions::default()).await;
     host.next_agent("agent-2");
+    std::fs::write(host.log.join("no-hooks"), "").unwrap();
 
-    // An absolute path bypasses the wrapper, as a shell rebuilding PATH does.
-    let bypass = format!("{}/claude\r", host.bin.display());
-    cc.type_in(tab.id, &bypass);
-
+    let tab = cc.open(Some(claude(None, None))).await;
     let agent = cc.wait_for_agent("agent-2", |a| a.polled).await;
     assert_eq!(agent.session.as_deref(), Some(tab.key.as_str()));
+
+    let resumed = cc.open(Some(claude(Some("agent-5"), None))).await;
+    let agent = cc.wait_for_agent("agent-5", |a| a.polled).await;
+    assert_eq!(agent.session.as_deref(), Some(resumed.key.as_str()));
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn resuming_opens_a_session_and_a_live_agent_is_refused() {
+async fn resuming_starts_in_the_agents_cwd_and_a_live_agent_is_refused() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
+    let api = host.plane.join("api");
+    std::fs::create_dir_all(&api).unwrap();
+    let cwd = api.display().to_string();
 
-    let tab = cc
-        .open(OpenOptions {
-            name: None,
-            resume: Some("agent-3".into()),
-        })
-        .await;
-
+    let tab = cc.open(Some(claude(Some("agent-3"), Some(&cwd)))).await;
+    assert_eq!(tab.agent.as_deref(), Some("claude"));
     let resuming = cc.wait_for_agent("agent-3", |_| true).await;
     assert_eq!(resuming.session.as_deref(), Some(tab.key.as_str()));
     let resumed = cc
         .wait_for_agent("agent-3", |a| a.state == AgentState::Idle)
         .await;
-    assert_eq!(resumed.session.as_deref(), Some(tab.key.as_str()));
+    assert_eq!(resumed.cwd, cwd);
+    assert!(host.calls().starts_with(&format!("{cwd} --settings ")));
+
     let again = OpenOptions {
         name: None,
-        resume: Some("agent-3".into()),
+        agent: Some(claude(Some("agent-3"), Some(&cwd))),
     };
     assert_eq!(
         cc.sessions.open("demo", &host.plane, again).await,
@@ -174,12 +208,42 @@ async fn resuming_opens_a_session_and_a_live_agent_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_claude_terminal_that_cannot_launch_keeps_its_tab_and_retries() {
+    let host = Host::new();
+    let _daemon = host.serve().await;
+    let cc = Cc::connect(&host).await;
+    host.next_agent("agent-6");
+    let fake = host.bin.join("claude");
+    let away = host.bin.join("claude-away");
+    std::fs::rename(&fake, &away).unwrap();
+
+    let tab = cc.open(Some(claude(None, None))).await;
+    let failed = cc
+        .wait_for_session(&tab, |s| {
+            matches!(s.status, SessionStatus::SpawnFailed { .. })
+        })
+        .await;
+    assert_eq!(failed.agent.as_deref(), Some("claude"));
+
+    std::fs::rename(&away, &fake).unwrap();
+    cc.sessions.restart(tab.id).await.unwrap();
+    let agent = cc
+        .wait_for_agent("agent-6", |a| a.state == AgentState::Idle)
+        .await;
+    assert_eq!(agent.session.as_deref(), Some(tab.key.as_str()));
+    cc.wait_for_session(&tab, |s| s.status == SessionStatus::Running)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_first_launch_imports_ccs_old_tabs_and_removes_its_hooks() {
     let host = Host::new();
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
     let legacy = host.legacy();
     let gone = host.root.path().join("gone");
+    let api = host.plane.join("api");
+    std::fs::create_dir_all(&api).unwrap();
     let entry = |key: &str, dir: &Path, title: Option<&str>, seq: u32| json!({ "key": key, "planeId": "demo", "planeDir": dir, "title": title, "seq": seq });
     let sessions = json!({ "version": 1, "sessions": [
         entry("k2", &host.plane, Some("build"), 2),
@@ -188,7 +252,7 @@ async fn the_first_launch_imports_ccs_old_tabs_and_removes_its_hooks() {
     ] });
     std::fs::write(&legacy.sessions, sessions.to_string()).unwrap();
     std::fs::create_dir_all(&legacy.agents).unwrap();
-    let link = json!({ "session_id": "agent-4", "cwd": host.plane, "hook_event_name": "Stop" });
+    let link = json!({ "session_id": "agent-4", "cwd": api, "hook_event_name": "Stop" });
     std::fs::write(legacy.agents.join("k1.json"), link.to_string()).unwrap();
     std::fs::write(legacy.agents.join("k1.pid"), "1").unwrap();
     let settings = legacy.claude_settings.clone().unwrap();
@@ -207,13 +271,20 @@ async fn the_first_launch_imports_ccs_old_tabs_and_removes_its_hooks() {
     let mut tabs = cc.sessions.list();
     tabs.sort_by_key(|t| t.seq);
     assert_eq!(
-        tabs.iter().map(|t| t.name.as_deref()).collect::<Vec<_>>(),
-        [None, Some("build")]
+        tabs.iter()
+            .map(|t| (t.name.as_deref(), t.agent.as_deref()))
+            .collect::<Vec<_>>(),
+        [(None, Some("claude")), (Some("build"), None)]
     );
     let resumed = cc
         .wait_for_agent("agent-4", |a| a.state == AgentState::Idle)
         .await;
     assert_eq!(resumed.session.as_deref(), Some(tabs[0].key.as_str()));
+    assert_eq!(resumed.cwd, api.display().to_string());
+    assert!(
+        host.calls()
+            .starts_with(&format!("{} --settings ", api.display()))
+    );
     assert!(!legacy.sessions.exists());
     assert!(!legacy.agents.exists());
     let after: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
@@ -235,10 +306,19 @@ async fn an_import_without_a_daemon_keeps_the_old_tabs() {
     assert!(legacy.sessions.exists());
 }
 
+fn claude(resume: Option<&str>, cwd: Option<&str>) -> AgentOpen {
+    AgentOpen {
+        kind: "claude".into(),
+        resume: resume.map(Into::into),
+        cwd: cwd.map(Into::into),
+    }
+}
+
 /// A host's directories in a short temp dir (macOS caps socket paths at 104
-/// bytes), with a plane root, a `HOME` of its own so no profile runs, and the
-/// fake `claude` on `PATH`. Its shell is never a login shell: macOS's
-/// `path_helper` would put the host's real `claude` first.
+/// bytes), with a plane root, a `HOME` of its own so no profile runs and no
+/// real `~/.claude` is read, and the fake `claude` the only one on the
+/// daemon's `PATH`. The env is given, never captured from a login shell,
+/// whose `path_helper` would put the host's real `claude` first.
 struct Host {
     dirs: Dirs,
     plane: PathBuf,
@@ -292,6 +372,16 @@ impl Host {
         std::fs::write(self.log.join("next-sid"), id).unwrap();
     }
 
+    /// Every launch of the fake `claude`: its cwd and argv.
+    fn calls(&self) -> String {
+        std::fs::read_to_string(self.log.join("calls")).unwrap_or_default()
+    }
+
+    /// The launches the fake `claude` refused.
+    fn bad(&self) -> String {
+        std::fs::read_to_string(self.log.join("bad")).unwrap_or_default()
+    }
+
     fn legacy(&self) -> Legacy {
         let data = self.root.path().join("data");
         std::fs::create_dir_all(&data).unwrap();
@@ -307,6 +397,7 @@ impl Host {
         let (stop, stopped) = oneshot::channel::<()>();
         let timing = Timing {
             poll: Duration::from_millis(100),
+            live: Duration::from_millis(1000),
             grace: Duration::from_millis(500),
         };
         let config = Config {
@@ -403,7 +494,8 @@ impl Cc {
         }
     }
 
-    async fn open(&self, options: OpenOptions) -> SessionInfo {
+    async fn open(&self, agent: Option<AgentOpen>) -> SessionInfo {
+        let options = OpenOptions { name: None, agent };
         let tab = self
             .sessions
             .open("demo", &self.plane, options)
@@ -415,8 +507,8 @@ impl Cc {
         tab
     }
 
-    fn type_in(&self, id: SessionId, text: &str) {
-        self.sessions.write(id, text.as_bytes()).unwrap();
+    fn type_in(&self, tab: &SessionInfo, text: &str) {
+        self.sessions.write(tab.id, text.as_bytes()).unwrap();
     }
 
     fn events(&self) -> Vec<AgentEvent> {
@@ -425,6 +517,27 @@ impl Cc {
             seen.push(event);
         }
         seen.clone()
+    }
+
+    async fn wait_for_session(
+        &self,
+        tab: &SessionInfo,
+        matches: impl Fn(&SessionInfo) -> bool,
+    ) -> SessionInfo {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let session = self.sessions.list().into_iter().find(|s| s.id == tab.id);
+            if let Some(session) = session.filter(&matches) {
+                return session;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for session {}: {:?}",
+                tab.id,
+                self.sessions.list()
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 
     async fn wait_for_agent(&self, id: &str, matches: impl Fn(&AgentInfo) -> bool) -> AgentInfo {

@@ -1,5 +1,5 @@
-//! The Claude Code agents in this host's sessions (ADR 0028), mirrored from
-//! the daemon's `agent.claude.list` and its events. A tab finds its agent by
+//! The coding agents in this host's Claude terminals (ADR 0028), mirrored
+//! from the daemon's `agent.list` and its events. A tab finds its agent by
 //! the session id, its `key`.
 
 use std::collections::{BTreeMap, HashSet};
@@ -19,17 +19,20 @@ use crate::daemon::{DaemonLink, Subscriber};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentInfo {
-    /// Claude Code's own session id; what a resume names.
+    /// The agent kind, such as `claude`.
+    pub kind: String,
+    /// The agent's own session id; what a resume names.
     pub agent_session: String,
     /// The daemon session it runs in, a tab's `key`; `None` once that closed.
     pub session: Option<String>,
-    /// Where the agent session started; it resumes only there.
+    /// Where the agent session started; a resume starts it there again.
     pub cwd: String,
     pub name: Option<String>,
     pub state: AgentState,
     /// Why the last turn failed; the daemon clears it on the next prompt.
     pub last_error: Option<AgentError>,
-    /// The agent's hooks didn't load, so its state comes from a poll and lags.
+    /// The agent's hooks were blocked by its settings, so its state comes
+    /// from a poll and lags.
     pub polled: bool,
 }
 
@@ -84,7 +87,7 @@ struct State {
     agents: BTreeMap<String, AgentInfo>,
     /// Counts connections; a list from an older one is dropped.
     connection: u64,
-    /// While an `agent.claude.list` is in flight: the agents the events
+    /// While an `agent.list` is in flight: the agents the events
     /// touched meanwhile, which are newer than the list.
     listing: Option<HashSet<String>>,
 }
@@ -120,8 +123,8 @@ impl Agents {
         };
         let me = self.me.clone();
         tauri::async_runtime::spawn(async move {
-            let listed = handle.call(method::AGENT_CLAUDE_LIST, None).await;
-            // An unavailable module lists nothing.
+            let listed = handle.call(method::AGENT_LIST, None).await;
+            // A daemon without the agent module lists nothing.
             let listed = listed
                 .ok()
                 .and_then(|value| serde_json::from_value::<AgentListResult>(value).ok())
@@ -165,7 +168,7 @@ impl Agents {
 
     fn event(&self, event: Notification) {
         let events = match event.method.as_str() {
-            method::AGENT_CLAUDE_CHANGED => {
+            method::AGENT_CHANGED => {
                 let Some(AgentResult { agent }) = params(event.params) else {
                     return;
                 };
@@ -176,7 +179,7 @@ impl Agents {
                 }
                 upsert(&mut state, agent)
             }
-            method::AGENT_CLAUDE_REMOVED => {
+            method::AGENT_REMOVED => {
                 let Some(AgentRef { agent_session }) = params(event.params) else {
                     return;
                 };
@@ -240,6 +243,7 @@ fn remove(state: &mut State, agent_session: &str) -> Option<AgentEvent> {
 
 fn info(agent: wire::Agent) -> AgentInfo {
     AgentInfo {
+        kind: agent.kind,
         agent_session: agent.agent_session,
         session: agent.session,
         cwd: agent.cwd,

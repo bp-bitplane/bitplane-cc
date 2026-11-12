@@ -26,7 +26,8 @@ use crate::git::{self, Repo};
 use crate::git_watch::{FileTabsEvent, GitTarget, SourceControlEvent};
 use crate::planes;
 use crate::sessions::{
-    BusyInfo, OpenOptions, OutputSink, SessionError, SessionEvent, SessionId, SessionInfo,
+    AgentOpen, BusyInfo, OpenOptions, OutputSink, SessionError, SessionEvent, SessionId,
+    SessionInfo,
 };
 
 pub type AppState = Arc<App>;
@@ -153,18 +154,18 @@ async fn refresh(app: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Open a session in a plane's root, resuming the agent session `resume`
-/// names. A missing root opens nothing and refreshes the list, which marks
-/// the plane gone.
+/// Open a session in a plane's root: a Claude terminal running `agent`, or
+/// without it a regular terminal. A missing root opens nothing and refreshes
+/// the list, which marks the plane gone.
 #[tauri::command]
 #[specta::specta]
 async fn session_open(
     app: State<'_, AppState>,
     plane_id: String,
-    resume: Option<String>,
+    agent: Option<AgentOpen>,
 ) -> Result<SessionInfo, String> {
     let dir = app.plane_dir(&plane_id)?;
-    let options = OpenOptions { name: None, resume };
+    let options = OpenOptions { name: None, agent };
     let result = app.sessions.open(&plane_id, &dir, options).await;
     refresh_if_gone(&app, result).await
 }

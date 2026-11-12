@@ -6,6 +6,7 @@ import { create } from "zustand";
 import {
   type AgentEvent,
   type AgentInfo,
+  type AgentOpen,
   type CreateArgs,
   type CreateEvent,
   type CreateInfo,
@@ -310,16 +311,16 @@ export function selectTab(planeId: string, id: TabId): void {
   }));
 }
 
-/** Open a session in the plane, resuming the agent session `resume` names. */
+/** Open a session in the plane: a Claude terminal running `agent`, else a regular one. */
 export async function openSession(
   planeId = get().selectedPlaneId,
-  resume: string | null = null,
+  agent: AgentOpen | null = null,
 ): Promise<void> {
   if (!planeId) return;
   const plane = findPlane(get(), planeId);
   if (plane && (plane.kind === "gone" || plane.kind === "creating")) return;
   try {
-    const session = await commands.sessionOpen(planeId, resume);
+    const session = await commands.sessionOpen(planeId, agent);
     // Events are authoritative; the reply only fills in when none arrived yet.
     if (!get().sessions[session.id] && !closedSessions.has(session.id)) {
       applySession({ id: session.id, session });
@@ -327,19 +328,26 @@ export async function openSession(
     if (closedSessions.has(session.id)) return;
     set((state) => ({ activeTab: { ...state.activeTab, [planeId]: session.id } }));
   } catch (error) {
-    const live = resume !== null && showLiveAgent(resume);
+    const live = agent?.resume != null && showLiveAgent(agent.resume);
     set({ notice: live ? "That agent session is already running in this tab." : String(error) });
   }
 }
 
 /**
- * Resume a past agent session in a new session of `planeId`. One already
- * running somewhere is shown instead: an agent session never runs twice.
+ * Resume a past agent session in a new Claude terminal of `planeId`, where
+ * it ran. One already running somewhere is shown instead: an agent session
+ * never runs twice.
  */
-export async function resumeAgent(agentSession: string, planeId: string): Promise<void> {
+export async function resumeAgent(agent: AgentInfo, planeId: string): Promise<void> {
   closeDialog();
-  if (showLiveAgent(agentSession)) return;
-  await openSession(planeId, agentSession);
+  if (showLiveAgent(agent.agentSession)) return;
+  await openSession(planeId, { kind: agent.kind, resume: agent.agentSession, cwd: agent.cwd });
+}
+
+/** A new Claude terminal in the plane root. */
+export async function openClaudeTerminal(planeId: string): Promise<void> {
+  closeDialog();
+  await openSession(planeId, { kind: "claude", resume: null, cwd: null });
 }
 
 /** Close a session, asking first when something other than the shell runs. */

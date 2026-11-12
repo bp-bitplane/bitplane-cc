@@ -45,7 +45,7 @@ describe("selecting planes", () => {
     seed({ planes: planesModel([plane("alpha")]) });
     selectPlane("alpha");
     await flush();
-    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "alpha", resume: null });
+    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "alpha", agent: null });
     expect(state().selectedPlaneId).toBe("alpha");
     expect(state().activeTab.alpha).toBe(7);
     expect(state().sessions[7]).toBeDefined();
@@ -556,12 +556,13 @@ describe("agents", () => {
 
   it("resumes an agent session in a new session of its plane", async () => {
     const backend = mockBackend({ session_open: () => session(3, "alpha") });
-    seed({
-      planes: planesModel([plane("alpha")]),
-      agents: { a1: agent("a1", null, { state: { kind: "exited" } }) },
+    const a1 = agent("a1", null, { state: { kind: "exited" }, cwd: "/planes/alpha/api" });
+    seed({ planes: planesModel([plane("alpha")]), agents: { a1 } });
+    await resumeAgent(a1, "alpha");
+    expect(backend.called("session_open")[0]?.args).toEqual({
+      planeId: "alpha",
+      agent: { kind: "claude", resume: "a1", cwd: "/planes/alpha/api" },
     });
-    await resumeAgent("a1", "alpha");
-    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "alpha", resume: "a1" });
     expect(state().activeTab.alpha).toBe(3);
   });
 
@@ -573,7 +574,7 @@ describe("agents", () => {
       agents: { a1: agent("a1", "key-2", { state: { kind: "busy" } }) },
       selectedPlaneId: "alpha",
     });
-    await resumeAgent("a1", "alpha");
+    await resumeAgent(agent("a1", null, { state: { kind: "exited" } }), "alpha");
     expect(backend.called("session_open")).toHaveLength(0);
     expect(state().selectedPlaneId).toBe("beta");
     expect(state().activeTab.beta).toBe(2);
@@ -591,7 +592,7 @@ describe("agents", () => {
       sessions: sessionsById(session(1, "alpha"), session(2, "beta")),
       agents: { a1: agent("a1", null, { state: { kind: "exited" } }) },
     });
-    await resumeAgent("a1", "alpha");
+    await resumeAgent(agent("a1", null, { state: { kind: "exited" } }), "alpha");
     expect(state().activeTab.beta).toBe(2);
     expect(state().notice).toBe("That agent session is already running in this tab.");
   });

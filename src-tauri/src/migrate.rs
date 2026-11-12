@@ -1,7 +1,7 @@
 //! The first launch on the daemon imports what cc restored itself before
 //! (ADR 0005, superseded by 0028): the tabs in `sessions.json`, the agent
 //! links its hooks wrote next to it, and those hooks in
-//! `~/.claude/settings.json`, which the daemon's own hooks replace.
+//! `~/.claude/settings.json`, which the daemon's per-session hooks replace.
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::persist::{self, Entry};
-use crate::sessions::{OpenOptions, SessionError, Sessions};
+use crate::sessions::{AgentOpen, OpenOptions, SessionError, Sessions};
 
 /// What cc's hooks marked their entries with, in every version.
 const HOOK_MARKER: &str = "# BITPLANE_CC";
@@ -24,9 +24,10 @@ pub struct Legacy {
     pub claude_settings: Option<PathBuf>,
 }
 
-/// Open a session per old tab, in creation order, resuming its agent, then
-/// delete the old files. A daemon error stops the import and keeps the tabs
-/// not yet opened for the next launch. cc's hooks are removed either way.
+/// Open a session per old tab, in creation order, then delete the old files.
+/// A tab with an agent link becomes a Claude terminal resuming it where it
+/// ran. A daemon error stops the import and keeps the tabs not yet opened
+/// for the next launch. cc's hooks are removed either way.
 pub async fn import(legacy: &Legacy, sessions: &Sessions) {
     if let Some(settings) = &legacy.claude_settings
         && let Err(error) = remove_hooks(settings)
@@ -35,8 +36,8 @@ pub async fn import(legacy: &Legacy, sessions: &Sessions) {
     }
     let entries = persist::load(&legacy.sessions);
     for (index, entry) in entries.iter().enumerate() {
-        let resume = read_link(&legacy.agents, &entry.key);
-        if let Err(error) = open(sessions, entry, resume).await {
+        let link = read_link(&legacy.agents, &entry.key);
+        if let Err(error) = open(sessions, entry, link).await {
             eprintln!("bitplane-cc: stopped importing cc's old tabs: {error}");
             if index > 0
                 && let Err(error) = persist::store(&legacy.sessions, &entries[index..])
@@ -89,17 +90,18 @@ pub fn remove_hooks(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("couldn't write {}: {e}", path.display()))
 }
 
-async fn open(
-    sessions: &Sessions,
-    entry: &Entry,
-    resume: Option<String>,
-) -> Result<(), SessionError> {
-    let options = |resume| OpenOptions {
+async fn open(sessions: &Sessions, entry: &Entry, link: Option<Link>) -> Result<(), SessionError> {
+    let options = |agent| OpenOptions {
         name: entry.title.clone(),
-        resume,
+        agent,
     };
+    let agent = link.map(|link| AgentOpen {
+        kind: "claude".into(),
+        resume: Some(link.session_id),
+        cwd: link.cwd,
+    });
     let opened = sessions
-        .open(&entry.plane_id, &entry.plane_dir, options(resume))
+        .open(&entry.plane_id, &entry.plane_dir, options(agent))
         .await;
     match opened {
         Ok(_) | Err(SessionError::RootMissing(_)) => Ok(()),
@@ -128,18 +130,21 @@ fn drop_ours(group: &mut Value, changed: &mut bool) -> bool {
     dropped && hooks.is_empty()
 }
 
-/// The agent session a tab's hooks last reported, if it's safe to resume.
-fn read_link(dir: &Path, key: &str) -> Option<String> {
-    #[derive(Deserialize)]
-    struct HookInput {
-        session_id: String,
-    }
+/// The agent session a tab's hooks last reported, and where it ran.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct Link {
+    session_id: String,
+    cwd: Option<String>,
+}
+
+/// A tab's link, if it's safe to resume.
+fn read_link(dir: &Path, key: &str) -> Option<Link> {
     if !is_id(key) {
         return None;
     }
     let text = std::fs::read_to_string(dir.join(format!("{key}.json"))).ok()?;
-    let input: HookInput = serde_json::from_str(&text).ok()?;
-    is_id(&input.session_id).then_some(input.session_id)
+    let link: Link = serde_json::from_str(&text).ok()?;
+    is_id(&link.session_id).then_some(link)
 }
 
 fn is_id(id: &str) -> bool {
@@ -231,8 +236,18 @@ mod tests {
         std::fs::write(dir.path().join("k1.json"), link(ID).to_string()).unwrap();
         std::fs::write(dir.path().join("k2.json"), link("x; rm -rf ~").to_string()).unwrap();
         std::fs::write(dir.path().join("k3.json"), "not json").unwrap();
+        std::fs::write(
+            dir.path().join("k4.json"),
+            json!({ "session_id": ID }).to_string(),
+        )
+        .unwrap();
 
-        assert_eq!(read_link(dir.path(), "k1").as_deref(), Some(ID));
+        let link = |cwd: Option<&str>| Link {
+            session_id: ID.into(),
+            cwd: cwd.map(Into::into),
+        };
+        assert_eq!(read_link(dir.path(), "k1"), Some(link(Some("/p"))));
+        assert_eq!(read_link(dir.path(), "k4"), Some(link(None)));
         assert_eq!(read_link(dir.path(), "k2"), None);
         assert_eq!(read_link(dir.path(), "k3"), None);
         assert_eq!(read_link(dir.path(), "missing"), None);

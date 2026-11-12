@@ -101,7 +101,7 @@ describe("Sidebar", () => {
     render(<Sidebar />);
     await userEvent.click(screen.getByRole("button", { name: "beta" }));
     await flush();
-    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "beta", resume: null });
+    expect(backend.called("session_open")[0]?.args).toEqual({ planeId: "beta", agent: null });
   });
 
   it("leaves the header's left side to the macOS traffic lights", () => {

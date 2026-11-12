@@ -10,7 +10,7 @@ use std::time::Duration;
 use bitplane_protocol::session::{
     AttachmentAckParams, AttachmentError, AttachmentId, AttachmentOpenParams, AttachmentOpenResult,
     AttachmentRef, AttachmentResizeParams, Session, SessionBusyResult, SessionListResult,
-    SessionOpenParams, SessionRef, SessionRenameParams, SessionResult,
+    SessionOpenAgent, SessionOpenParams, SessionRef, SessionRenameParams, SessionResult,
 };
 use bitplane_protocol::{ErrorCode, Frame, Notification, method};
 use bitplane_sessiond::client::{ClientError, Handle};
@@ -51,17 +51,21 @@ pub struct SessionInfo {
     pub shell_name: String,
     /// The session root no longer exists; restarting it fails.
     pub root_gone: bool,
+    /// The agent kind of a Claude terminal, whose process is the agent
+    /// itself; `None` for a regular terminal.
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SessionStatus {
     Running,
-    /// The shell exited with a non-zero code.
+    /// The process exited; a regular terminal's shell exiting 0 closes its
+    /// tab instead.
     Exited {
         code: i32,
     },
-    /// The shell couldn't be started.
+    /// The process couldn't be started.
     SpawnFailed {
         error: String,
     },
@@ -98,8 +102,20 @@ pub struct SessionConfig {
 pub struct OpenOptions {
     /// The tab's name, as `session.rename` would set it.
     pub name: Option<String>,
-    /// The agent session the shell resumes.
+    /// Makes it a Claude terminal.
+    pub agent: Option<AgentOpen>,
+}
+
+/// The agent a Claude terminal launches.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentOpen {
+    pub kind: String,
+    /// The agent session to continue.
     pub resume: Option<String>,
+    /// Where the agent starts; a resume needs the cwd it ran in, or it
+    /// starts in the plane root.
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -236,7 +252,11 @@ impl Sessions {
             env: None,
             plane: Some(plane_id.into()),
             name: options.name.filter(|name| !name.trim().is_empty()),
-            resume: options.resume,
+            agent: options.agent.map(|agent| SessionOpenAgent {
+                kind: agent.kind,
+                resume: agent.resume,
+                cwd: agent.cwd,
+            }),
         };
         match self.call(method::SESSION_OPEN, params).await {
             Ok(SessionResult { session }) => Ok(self.mirror(session)),
@@ -248,7 +268,8 @@ impl Sessions {
         }
     }
 
-    /// A fresh shell under the same tab; its terminal starts over.
+    /// A fresh process under the same tab; its terminal starts over. A
+    /// Claude terminal resumes its agent session when it has one.
     pub async fn restart(&self, id: SessionId) -> Result<SessionInfo, SessionError> {
         let (key, root) = self.key_and_root(id)?;
         let result = self
@@ -439,6 +460,7 @@ impl Sessions {
             name: session.name,
             shell_name: self.config.shell_name.clone(),
             root_gone: session.root_gone,
+            agent: session.agent.map(|agent| agent.kind),
         };
         let event = SessionEvent {
             id,
@@ -471,11 +493,11 @@ impl Sessions {
     fn emit_all(&self, events: impl IntoIterator<Item = SessionEvent>) {
         for event in events {
             // A shell that exits 0 closes its tab, as it did before the daemon;
-            // the exited state isn't shown on the way.
+            // the exited state isn't shown on the way. A Claude terminal stays.
             let clean_exit = event
                 .session
                 .as_ref()
-                .filter(|s| s.status == SessionStatus::Exited { code: 0 })
+                .filter(|s| s.agent.is_none() && s.status == SessionStatus::Exited { code: 0 })
                 .map(|s| s.key.clone());
             let Some(key) = clean_exit else {
                 (self.emit)(event);

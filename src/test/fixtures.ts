@@ -42,6 +42,7 @@ export function session(
     name: null,
     shellName: "zsh",
     rootGone: false,
+    agent: null,
     ...overrides,
   };
 }
@@ -53,6 +54,7 @@ export function agent(
   overrides: Partial<AgentInfo> = {},
 ): AgentInfo {
   return {
+    kind: "claude",
     agentSession,
     session,
     cwd: "/planes/a",

@@ -9,11 +9,20 @@ export const commands = {
 	snapshot: () => __TAURI_INVOKE<Snapshot>("snapshot"),
 	refresh: () => __TAURI_INVOKE<null>("refresh"),
 	/**
-	 *  Open a session in a plane's root, resuming the agent session `resume`
-	 *  names. A missing root opens nothing and refreshes the list, which marks
-	 *  the plane gone.
+	 *  Open a session in a plane's root: a Claude terminal running `agent`, or
+	 *  without it a regular terminal. A missing root opens nothing and refreshes
+	 *  the list, which marks the plane gone.
 	 */
-	sessionOpen: (planeId: string, resume: string | null) => __TAURI_INVOKE<SessionInfo>("session_open", { planeId, resume }),
+	sessionOpen: (planeId: string, agent: {
+	kind: string,
+	/**  The agent session to continue. */
+	resume: string | null,
+	/**
+	 *  Where the agent starts; a resume needs the cwd it ran in, or it
+	 *  starts in the plane root.
+	 */
+	cwd: string | null,
+} | null) => __TAURI_INVOKE<SessionInfo>("session_open", { planeId, agent }),
 	sessionRestart: (id: number) => __TAURI_INVOKE<SessionInfo>("session_restart", { id }),
 	/**  Closes the session for every client of the daemon. */
 	sessionClose: (id: number) => __TAURI_INVOKE<null>("session_close", { id }),
@@ -94,18 +103,35 @@ export type AgentEvent = {
 
 /**  One agent, as the frontend sees it. */
 export type AgentInfo = {
-	/**  Claude Code's own session id; what a resume names. */
+	/**  The agent kind, such as `claude`. */
+	kind: string,
+	/**  The agent's own session id; what a resume names. */
 	agentSession: string,
 	/**  The daemon session it runs in, a tab's `key`; `None` once that closed. */
 	session: string | null,
-	/**  Where the agent session started; it resumes only there. */
+	/**  Where the agent session started; a resume starts it there again. */
 	cwd: string,
 	name: string | null,
 	state: AgentState,
 	/**  Why the last turn failed; the daemon clears it on the next prompt. */
 	lastError: AgentError | null,
-	/**  The agent's hooks didn't load, so its state comes from a poll and lags. */
+	/**
+	 *  The agent's hooks were blocked by its settings, so its state comes
+	 *  from a poll and lags.
+	 */
 	polled: boolean,
+};
+
+/**  The agent a Claude terminal launches. */
+export type AgentOpen = {
+	kind: string,
+	/**  The agent session to continue. */
+	resume: string | null,
+	/**
+	 *  Where the agent starts; a resume needs the cwd it ran in, or it
+	 *  starts in the plane root.
+	 */
+	cwd: string | null,
 };
 
 export type AgentState = { kind: "idle" } | { kind: "busy" } | { kind: "waiting"; reason: WaitingReason } | { kind: "resuming" } | { kind: "exited" } | 
@@ -350,12 +376,20 @@ export type SessionInfo = {
 	shellName: string,
 	/**  The session root no longer exists; restarting it fails. */
 	rootGone: boolean,
+	/**
+	 *  The agent kind of a Claude terminal, whose process is the agent
+	 *  itself; `None` for a regular terminal.
+	 */
+	agent: string | null,
 };
 
 export type SessionStatus = { kind: "running" } | 
-/**  The shell exited with a non-zero code. */
+/**
+ *  The process exited; a regular terminal's shell exiting 0 closes its
+ *  tab instead.
+ */
 { kind: "exited"; code: number } | 
-/**  The shell couldn't be started. */
+/**  The process couldn't be started. */
 { kind: "spawnFailed"; error: string };
 
 /**  Everything the frontend mirrors, for `snapshot`. */

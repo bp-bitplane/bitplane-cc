@@ -44,13 +44,17 @@ describe("TabBar", () => {
     mockBackend();
     seed({
       planes: planesModel([plane("a")]),
-      sessions: sessionsById(session(1, "a"), session(2, "a"), session(3, "a"), session(4, "a")),
+      sessions: sessionsById(
+        ...[1, 2, 3, 4, 5, 6].map((id) => session(id, "a", { agent: id === 4 ? null : "claude" })),
+      ),
       agents: {
         old: agent("old", "key-1", { state: { kind: "exited" } }),
         now: agent("now", "key-1", { state: { kind: "busy" } }),
         ask: agent("ask", "key-2", { state: { kind: "waiting", reason: "permission" } }),
         back: agent("back", "key-3", { state: { kind: "resuming" } }),
         closed: agent("closed", null),
+        calm: agent("calm", "key-5"),
+        done: agent("done", "key-6", { state: { kind: "exited" } }),
       },
     });
     render(<TabBar planeId="a" />);
@@ -58,6 +62,8 @@ describe("TabBar", () => {
       "Agent busy",
       "Agent waiting for permission",
       "Agent resuming",
+      "Agent idle",
+      "Agent exited",
     ]);
   });
 
