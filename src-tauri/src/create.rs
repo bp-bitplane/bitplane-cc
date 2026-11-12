@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::io::AsyncReadExt;
 
-use crate::bp::{self, Bp, Envelope, PlaneCreated};
+use crate::bp::{self, Bp, ErrorEnvelope, PlaneCreated};
 use crate::planes::{BITPLANE_DIR, PLANE_FILE, Source};
 
 /// Bytes of log kept per create; older output is dropped from the front.
@@ -36,12 +36,12 @@ pub struct Member {
     pub branch: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BranchIntent {
-    Auto,
-    New,
-    Existing,
+    Resolve,
+    RequireNew,
+    RequireExisting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Type)]
@@ -62,13 +62,13 @@ pub enum CreateStatus {
     /// Nothing is on disk; the dialog reopens.
     #[serde(rename_all = "camelCase")]
     NothingCreated {
-        envelope: Option<Envelope>,
+        envelope: Option<ErrorEnvelope>,
         retryable: bool,
     },
     /// A partial plane is left behind; only `bp destroy` cleans it up.
     #[serde(rename_all = "camelCase")]
     Partial {
-        envelope: Option<Envelope>,
+        envelope: Option<ErrorEnvelope>,
     },
 }
 
@@ -341,13 +341,13 @@ pub fn argv(args: &CreateArgs) -> Vec<String> {
         args.id.clone(),
     ]);
     match args.intent {
-        BranchIntent::Auto => {}
-        BranchIntent::New => argv.push("--new-branch".into()),
-        BranchIntent::Existing => argv.push("--existing-branch".into()),
+        BranchIntent::Resolve => {}
+        BranchIntent::RequireNew => argv.push("--new-branch".into()),
+        BranchIntent::RequireExisting => argv.push("--existing-branch".into()),
     }
     // bp refuses --no-fetch with its default intent, so the dialog only
     // offers it with New or Existing.
-    if args.no_fetch && args.intent != BranchIntent::Auto {
+    if args.no_fetch && args.intent != BranchIntent::Resolve {
         argv.push("--no-fetch".into());
     }
     if args.no_scripts {
@@ -374,7 +374,7 @@ pub fn phase_on_disk(directory: &Path) -> Phase {
 pub fn classify(
     code: Option<i32>,
     created: Option<&PlaneCreated>,
-    envelope: Option<&Envelope>,
+    envelope: Option<&ErrorEnvelope>,
     directory_exists: bool,
 ) -> CreateStatus {
     if code == Some(bp::EXIT_OK) && created.is_some_and(|c| !c.interrupted && !c.remnant) {
@@ -433,14 +433,14 @@ mod tests {
                     branch: Some("main".into()),
                 },
             ],
-            intent: BranchIntent::Auto,
+            intent: BranchIntent::Resolve,
             no_fetch: false,
             no_scripts: false,
         }
     }
 
-    fn envelope(error: &str, code: i32) -> Envelope {
-        Envelope {
+    fn envelope(error: &str, code: i32) -> ErrorEnvelope {
+        ErrorEnvelope {
             error: error.into(),
             code,
             message: "m".into(),
@@ -473,7 +473,7 @@ mod tests {
             ]
         );
         let mut all = args();
-        all.intent = BranchIntent::New;
+        all.intent = BranchIntent::RequireNew;
         all.no_fetch = true;
         all.no_scripts = true;
         assert_eq!(
@@ -481,7 +481,7 @@ mod tests {
             ["--new-branch", "--no-fetch", "--no-scripts"]
         );
         let mut existing = args();
-        existing.intent = BranchIntent::Existing;
+        existing.intent = BranchIntent::RequireExisting;
         assert_eq!(argv(&existing)[7..], ["--existing-branch"]);
     }
 

@@ -28,6 +28,10 @@ bitplane-protocol = { path = "../bitplane-protocol/crates/bitplane-protocol" }
 
 `build-sidecar.sh` then builds the daemon from `../bitplane-sessiond`. The patch rewrites `Cargo.lock`; never commit that version.
 
+## bp's wire types
+
+`src/ipc/bp-contract.ts` is bitplane-core's generated TypeScript for bp's JSON (ADR 0002), vendored at the bitplane-cli rev in `src/ipc/bp-contract.rev`. Never edit it. `pnpm bp-contract <rev>` re-vendors it from a bitplane-cli checkout (`$BITPLANE_CLI`, default `../bitplane-cli`; `<rev>` defaults to its `HEAD`) and records the rev; `pnpm bp-contract --check` fails when the copy differs from that rev. A Rust type that is also a bp wire type joins `bp_contract!` in `src-tauri/src/ipc.rs` under bp's name, so `bindings.ts` imports it from the contract instead of copying it.
+
 ## Building
 
 The daemon links libghostty-vt, and so does cc through the `bitplane-sessiond` lib. Building it needs Zig 0.15.2 on `PATH` and sessiond's build environment (the vendored ghostty source and, on macOS, the SDK shim; see sessiond's `docs/build.md`). Run cargo through `scripts/build-env.sh` (`scripts/build-env.sh cargo test --manifest-path src-tauri/Cargo.toml`); the pnpm scripts already do. It uses `../bitplane-sessiond` when the patch above exists, else a checkout of the pinned rev in `src-tauri/target/sessiond-src`.
