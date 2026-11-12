@@ -1,12 +1,10 @@
 import { File, Plus, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { AgentInfo, SessionInfo } from "../ipc";
-import { labelFor, type Platform } from "../keymap";
+import type { SessionInfo } from "../ipc";
+import { labelFor } from "../keymap";
 import {
   activeTabId,
-  agentOf,
-  agentStateLabel,
   fileTabsOf,
   findPlane,
   programTitle,
@@ -25,7 +23,7 @@ import {
   useStore,
 } from "../store/store";
 import { fileTabKey, fileTabTitle, folderOf, folderSuffixes } from "./fileTabs";
-import { KindIcon } from "./KindIcon";
+import { SessionSlot, useNumbersShown } from "./SessionSlot";
 import styles from "./TabBar.module.css";
 
 /**
@@ -123,7 +121,6 @@ function SessionTab({
   active: boolean;
   numbered: boolean;
 }) {
-  const agent = useStore((s) => agentOf(s, session));
   const [editing, setEditing] = useState(false);
   // An input removed while focused may still blur; only the first finish counts.
   const finished = useRef(false);
@@ -138,14 +135,12 @@ function SessionTab({
 
   return (
     <div className={`${styles.tab} ${active ? styles.active : ""}`}>
-      <span className={styles.slot}>
-        {numbered ? (
-          <span className={styles.number}>{position}</span>
-        ) : (
-          <KindIcon kind={session.agent} />
-        )}
-        {agent && <AgentBadge agent={agent} />}
-      </span>
+      <SessionSlot
+        session={session}
+        position={position}
+        numbered={numbered}
+        className={styles.slot}
+      />
       {editing ? (
         <input
           className={styles.rename}
@@ -190,38 +185,4 @@ function SessionTab({
       </button>
     </div>
   );
-}
-
-function AgentBadge({ agent }: { agent: AgentInfo }) {
-  const state = agentStateLabel(agent);
-  if (state === null) return null;
-  const label = `Agent ${state}`;
-  return (
-    <span
-      className={styles.agent}
-      data-state={agent.state.kind}
-      role="img"
-      aria-label={label}
-      title={label}
-    />
-  );
-}
-
-/** Whether the modifier of the go-to-tab shortcut (⌘ on macOS) is held down. */
-function useNumbersShown(platform: Platform): boolean {
-  const [held, setHeld] = useState(false);
-  useEffect(() => {
-    const update = (e: KeyboardEvent) =>
-      setHeld(platform === "mac" ? e.metaKey : e.ctrlKey && e.altKey);
-    const release = () => setHeld(false);
-    window.addEventListener("keydown", update, true);
-    window.addEventListener("keyup", update, true);
-    window.addEventListener("blur", release);
-    return () => {
-      window.removeEventListener("keydown", update, true);
-      window.removeEventListener("keyup", update, true);
-      window.removeEventListener("blur", release);
-    };
-  }, [platform]);
-  return held;
 }

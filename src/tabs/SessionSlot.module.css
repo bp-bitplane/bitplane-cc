@@ -1,0 +1,52 @@
+.slot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.number {
+  font: 600 12px var(--mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.agent {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dim);
+  background: var(--slot-bg, var(--bg));
+  box-shadow: 0 0 0 1.5px var(--slot-bg, var(--bg));
+}
+
+.agent[data-state="busy"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.agent[data-state="waiting"] {
+  border-color: var(--warn);
+  background: var(--warn);
+}
+
+.agent[data-state="resuming"] {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+
+.agent[data-state="exited"] {
+  border-color: var(--faint);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}

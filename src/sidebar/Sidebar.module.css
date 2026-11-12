@@ -137,9 +137,11 @@
 }
 
 .session {
+  --slot-bg: var(--panel);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 6px;
   height: 26px;
   padding: 0 4px 0 8px;
   border-radius: 6px;
@@ -170,6 +172,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.suffix {
+  margin-left: 6px;
+  color: var(--faint);
+  font-weight: 400;
 }
 
 .sessionButton:hover {

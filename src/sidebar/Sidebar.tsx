@@ -10,9 +10,16 @@ import {
 } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { PlaneRow } from "../ipc";
+import type { PlaneRow, SessionInfo } from "../ipc";
 import { labelFor } from "../keymap";
-import { activeSession, isExpanded, sessionsOf, tabLabel } from "../store/selectors";
+import {
+  activeSession,
+  isExpanded,
+  programTitle,
+  sessionsOf,
+  sessionTitle,
+  tabLabel,
+} from "../store/selectors";
 import {
   MAX_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
@@ -28,6 +35,7 @@ import {
   toggleCollapsed,
   useStore,
 } from "../store/store";
+import { SessionSlot, useNumbersShown } from "../tabs/SessionSlot";
 import { PlaneBadges } from "../ui/Badges";
 import { ResizeHandle } from "../ui/ResizeHandle";
 import styles from "./Sidebar.module.css";
@@ -84,6 +92,8 @@ function PlaneGroup({ plane }: { plane: PlaneRow }) {
   const sessions = useStore(useShallow((s) => sessionsOf(s, plane.id)));
   const expanded = useStore((s) => isExpanded(s, plane.id));
   const current = useStore((s) => activeSession(s, plane.id));
+  const platform = useStore((s) => s.platform);
+  const numbered = useNumbersShown(platform) && selected;
   const rowClass = [
     styles.plane,
     selected && styles.selected,
@@ -126,13 +136,19 @@ function PlaneGroup({ plane }: { plane: PlaneRow }) {
               key={session.id}
               className={`${styles.session} ${selected && session.id === current?.id ? styles.current : ""}`}
             >
+              <SessionSlot session={session} position={index + 1} numbered={numbered} />
               <button
                 type="button"
                 className={styles.sessionButton}
+                aria-label={tabLabel(session, index + 1)}
+                title={sessionLabel(session, index + 1)}
                 tabIndex={-1}
                 onClick={() => selectSession(plane.id, session.id)}
               >
-                {tabLabel(session, index + 1)}
+                {sessionTitle(session)}
+                {programTitle(session) && (
+                  <span className={styles.suffix}>{programTitle(session)}</span>
+                )}
               </button>
               <button
                 type="button"
@@ -212,4 +228,9 @@ function IconButton({
       {children}
     </button>
   );
+}
+
+function sessionLabel(session: SessionInfo, position: number): string {
+  const title = programTitle(session);
+  return title ? `${tabLabel(session, position)} — ${title}` : tabLabel(session, position);
 }
