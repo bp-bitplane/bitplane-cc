@@ -3,6 +3,7 @@ import { Log } from "../create-plane/CreateProgress";
 import type { DaemonInfo } from "../ipc";
 import { closeDialog, closeSession, useStore } from "../store/store";
 import styles from "./Dialogs.module.css";
+import { Launcher } from "./Launcher";
 import { DialogActions, Modal } from "./Modal";
 import { Palette } from "./Palette";
 
@@ -12,6 +13,8 @@ export function Dialogs() {
   switch (dialog?.kind) {
     case "palette":
       return <Palette />;
+    case "launcher":
+      return <Launcher planeId={dialog.planeId} />;
     case "create":
       return (
         <CreatePlaneDialog

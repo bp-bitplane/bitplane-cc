@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::Notify;
 
-use crate::agents::{AgentEvent, AgentInfo, Agents};
+use crate::agents::{AgentEvent, AgentInfo, AgentKindInfo, Agents};
 use crate::bp::{self, Bp, BpError, VersionError};
 use crate::create::{CreateEvent, CreateInfo, CreateStatus, Creates};
 use crate::daemon::DaemonLink;
@@ -80,6 +80,7 @@ pub struct Snapshot {
     pub planes: PlanesModel,
     pub sessions: Vec<SessionInfo>,
     pub agents: Vec<AgentInfo>,
+    pub agent_kinds: Vec<AgentKindInfo>,
     pub creates: Vec<CreateInfo>,
 }
 
@@ -109,6 +110,7 @@ pub struct Emitters {
     pub planes: EmitPlanes,
     pub session: Arc<dyn Fn(SessionEvent) + Send + Sync>,
     pub agent: Arc<dyn Fn(AgentEvent) + Send + Sync>,
+    pub agent_kinds: Arc<dyn Fn(Vec<AgentKindInfo>) + Send + Sync>,
     pub create: Arc<dyn Fn(CreateEvent) + Send + Sync>,
     pub source_control: Arc<dyn Fn(SourceControlEvent) + Send + Sync>,
     pub files: Arc<dyn Fn(FilesEvent) + Send + Sync>,
@@ -181,7 +183,7 @@ impl App {
             }),
         );
 
-        let agents = Agents::new(daemon, emitters.agent);
+        let agents = Agents::new(daemon, emitters.agent, emitters.agent_kinds);
 
         let app = Arc::clone(&this);
         let emit_create = emitters.create;
@@ -485,6 +487,7 @@ impl App {
             }),
             sessions: self.sessions.list(),
             agents: self.agents.list(),
+            agent_kinds: self.agents.kinds(),
             creates: self.creates.list(),
         }
     }
@@ -643,6 +646,7 @@ mod tests {
                 planes: Arc::new(|_| {}),
                 session: Arc::new(|_| {}),
                 agent: Arc::new(|_| {}),
+                agent_kinds: Arc::new(|_| {}),
                 create: Arc::new(|_| {}),
                 source_control: Arc::new(|_| {}),
                 files: Arc::new(|_| {}),

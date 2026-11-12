@@ -32,7 +32,7 @@ describe("Palette", () => {
     ]);
     await userEvent.keyboard("{ArrowDown}{Enter}");
     expect(useStore.getState().selectedPlaneId).toBe("kiosk");
-    expect(useStore.getState().dialog).toBeNull();
+    expect(useStore.getState().dialog).toEqual({ kind: "launcher", planeId: "kiosk" });
   });
 
   it("shows session counts and findings", () => {
@@ -63,23 +63,6 @@ describe("Palette", () => {
     });
     expect(useStore.getState().activeTab.kiosk).toBe(5);
     expect(useStore.getState().dialog).toBeNull();
-  });
-
-  it("opens a Claude terminal in the selected plane", async () => {
-    const backend = mockBackend({ session_open: () => session(6, "kiosk", { agent: "claude" }) });
-    useStore.setState({ selectedPlaneId: "kiosk" });
-    render(<Palette />);
-    await userEvent.keyboard("claude");
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "New Claude terminal in kiosk",
-    ]);
-    await userEvent.keyboard("{Enter}");
-    await flush();
-    expect(backend.called("session_open")[0]?.args).toEqual({
-      planeId: "kiosk",
-      agent: { kind: "claude", resume: null, cwd: null },
-    });
-    expect(useStore.getState().activeTab.kiosk).toBe(6);
   });
 
   it("says when nothing matches and closes on Escape", async () => {

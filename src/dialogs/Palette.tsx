@@ -1,12 +1,6 @@
 import { useState } from "react";
-import { findPlane, resumableAgents, sessionsOf } from "../store/selectors";
-import {
-  closeDialog,
-  openClaudeTerminal,
-  resumeAgent,
-  selectPlane,
-  useStore,
-} from "../store/store";
+import { resumableAgents, sessionsOf } from "../store/selectors";
+import { closeDialog, resumeAgent, selectPlane, useStore } from "../store/store";
 import { PlaneBadges } from "../ui/Badges";
 import { Modal } from "./Modal";
 import styles from "./Palette.module.css";
@@ -17,33 +11,18 @@ export function Palette() {
   const rows = planes.planes;
   const sessions = useStore((s) => s.sessions);
   const agents = useStore((s) => s.agents);
-  const selected = useStore((s) => {
-    const plane = s.selectedPlaneId ? findPlane(s, s.selectedPlaneId) : undefined;
-    return plane?.kind === "plane" || plane?.kind === "draft" ? plane.id : null;
-  });
   const resumable = resumableAgents({ agents, planes });
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const needle = query.trim().toLowerCase();
   const matches = rows.filter((p) => p.id.includes(needle));
-  // A stopgap until the launcher palette (bp-bitplane/bitplane-cc#66).
-  const newClaude = selected
-    ? [
-        {
-          key: "new-claude",
-          label: `New Claude terminal in ${selected}`,
-          run: () => openClaudeTerminal(selected),
-        },
-      ]
-    : [];
-  const actions = [
-    ...newClaude,
-    ...resumable.map(({ agent, planeId }) => ({
+  const actions = resumable
+    .map(({ agent, planeId }) => ({
       key: agent.agentSession,
       label: `Resume agent session ${agent.name ?? agent.agentSession} in ${planeId}`,
       run: () => resumeAgent(agent, planeId),
-    })),
-  ].filter((a) => a.label.toLowerCase().includes(needle));
+    }))
+    .filter((a) => a.label.toLowerCase().includes(needle));
   const total = matches.length + actions.length;
   const pick = (i: number) => {
     const plane = matches[i];

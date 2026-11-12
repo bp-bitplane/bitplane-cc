@@ -1,11 +1,13 @@
-//! The coding agents in this host's Claude terminals (ADR 0028), mirrored
-//! from the daemon's `agent.list` and its events. A tab finds its agent by
-//! the session id, its `key`.
+//! The coding agents in this host's Claude terminals (ADR 0028) and the
+//! agent kinds the daemon can launch, mirrored from its `agent.list` and its
+//! events. A tab finds its agent by the session id, its `key`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
 
-use bitplane_protocol::agent::{self as wire, AgentListResult, AgentRef, AgentResult, Tracking};
+use bitplane_protocol::agent::{
+    self as wire, AgentKindStatus, AgentListResult, AgentRef, AgentResult, Tracking,
+};
 use bitplane_protocol::{Frame, Notification, method};
 use bitplane_sessiond::client::Handle;
 use serde::de::DeserializeOwned;
@@ -74,30 +76,52 @@ pub struct AgentEvent {
     pub agent: Option<AgentInfo>,
 }
 
+/// Whether an agent terminal of `kind` can be launched on this host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentKindInfo {
+    pub kind: String,
+    pub available: bool,
+    /// Why it can't be launched, such as `claude` missing from `PATH`.
+    pub error: Option<String>,
+}
+
 pub type EmitAgent = Arc<dyn Fn(AgentEvent) + Send + Sync>;
+
+/// Every kind, whenever one changes; a relist may also drop one.
+pub type EmitKinds = Arc<dyn Fn(Vec<AgentKindInfo>) + Send + Sync>;
 
 pub struct Agents {
     me: Weak<Agents>,
     emit: EmitAgent,
+    emit_kinds: EmitKinds,
     state: Mutex<State>,
 }
 
 #[derive(Default)]
 struct State {
     agents: BTreeMap<String, AgentInfo>,
+    kinds: BTreeMap<String, AgentKindInfo>,
     /// Counts connections; a list from an older one is dropped.
     connection: u64,
-    /// While an `agent.list` is in flight: the agents the events
-    /// touched meanwhile, which are newer than the list.
-    listing: Option<HashSet<String>>,
+    /// While an `agent.list` is in flight: the agents and kinds the
+    /// events touched meanwhile, which are newer than the list.
+    listing: Option<Touched>,
+}
+
+#[derive(Default)]
+struct Touched {
+    agents: HashSet<String>,
+    kinds: HashSet<String>,
 }
 
 impl Agents {
     /// Follows `link` from its next connection on.
-    pub fn new(link: &DaemonLink, emit: EmitAgent) -> Arc<Self> {
+    pub fn new(link: &DaemonLink, emit: EmitAgent, emit_kinds: EmitKinds) -> Arc<Self> {
         let agents = Arc::new_cyclic(|me| Agents {
             me: me.clone(),
             emit,
+            emit_kinds,
             state: Mutex::default(),
         });
         link.subscribe(Arc::new(Subscription(Arc::downgrade(&agents))));
@@ -114,11 +138,15 @@ impl Agents {
             .collect()
     }
 
+    pub fn kinds(&self) -> Vec<AgentKindInfo> {
+        self.state.lock().unwrap().kinds.values().cloned().collect()
+    }
+
     fn connected(&self, handle: Handle) {
         let connection = {
             let mut state = self.state.lock().unwrap();
             state.connection += 1;
-            state.listing = Some(HashSet::new());
+            state.listing = Some(Touched::default());
             state.connection
         };
         let me = self.me.clone();
@@ -128,22 +156,46 @@ impl Agents {
             let listed = listed
                 .ok()
                 .and_then(|value| serde_json::from_value::<AgentListResult>(value).ok())
-                .map_or_else(Vec::new, |result| result.agents);
+                .unwrap_or(AgentListResult {
+                    kinds: Vec::new(),
+                    agents: Vec::new(),
+                });
             if let Some(agents) = me.upgrade() {
                 agents.resync(connection, listed);
             }
         });
     }
 
-    fn resync(&self, connection: u64, listed: Vec<wire::Agent>) {
+    fn resync(&self, connection: u64, listed: AgentListResult) {
         let mut events = Vec::new();
+        let kinds;
         {
             let mut state = self.state.lock().unwrap();
             if state.connection != connection {
                 return;
             }
-            let touched = state.listing.take().unwrap_or_default();
+            let Touched {
+                agents: touched,
+                kinds: touched_kinds,
+            } = state.listing.take().unwrap_or_default();
+            let mut listed_kinds: BTreeMap<String, AgentKindInfo> = listed
+                .kinds
+                .into_iter()
+                .map(kind_info)
+                .map(|kind| (kind.kind.clone(), kind))
+                .collect();
+            for kind in &touched_kinds {
+                match state.kinds.get(kind) {
+                    Some(newer) => listed_kinds.insert(kind.clone(), newer.clone()),
+                    None => listed_kinds.remove(kind),
+                };
+            }
+            kinds = (state.kinds != listed_kinds).then(|| {
+                state.kinds = listed_kinds;
+                state.kinds.values().cloned().collect()
+            });
             let listed: BTreeMap<String, AgentInfo> = listed
+                .agents
                 .into_iter()
                 .map(info)
                 .map(|agent| (agent.agent_session.clone(), agent))
@@ -164,6 +216,9 @@ impl Agents {
             }
         }
         self.emit_all(events);
+        if let Some(kinds) = kinds {
+            (self.emit_kinds)(kinds);
+        }
     }
 
     fn event(&self, event: Notification) {
@@ -175,7 +230,7 @@ impl Agents {
                 let agent = info(agent);
                 let mut state = self.state.lock().unwrap();
                 if let Some(touched) = state.listing.as_mut() {
-                    touched.insert(agent.agent_session.clone());
+                    touched.agents.insert(agent.agent_session.clone());
                 }
                 upsert(&mut state, agent)
             }
@@ -185,9 +240,28 @@ impl Agents {
                 };
                 let mut state = self.state.lock().unwrap();
                 if let Some(touched) = state.listing.as_mut() {
-                    touched.insert(agent_session.clone());
+                    touched.agents.insert(agent_session.clone());
                 }
                 remove(&mut state, &agent_session)
+            }
+            method::AGENT_KIND_CHANGED => {
+                let Some(status) = params::<AgentKindStatus>(event.params) else {
+                    return;
+                };
+                let kind = kind_info(status);
+                let kinds = {
+                    let mut state = self.state.lock().unwrap();
+                    if let Some(touched) = state.listing.as_mut() {
+                        touched.kinds.insert(kind.kind.clone());
+                    }
+                    if state.kinds.get(&kind.kind) == Some(&kind) {
+                        return;
+                    }
+                    state.kinds.insert(kind.kind.clone(), kind);
+                    state.kinds.values().cloned().collect()
+                };
+                (self.emit_kinds)(kinds);
+                return;
             }
             _ => return,
         };
@@ -239,6 +313,14 @@ fn remove(state: &mut State, agent_session: &str) -> Option<AgentEvent> {
         agent_session: agent_session.into(),
         agent: None,
     })
+}
+
+fn kind_info(status: AgentKindStatus) -> AgentKindInfo {
+    AgentKindInfo {
+        kind: status.kind,
+        available: status.available,
+        error: status.error,
+    }
 }
 
 fn info(agent: wire::Agent) -> AgentInfo {

@@ -2,15 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Dialogs } from "../dialogs/Dialogs";
 import { openDuplicateDialog, useStore } from "../store/store";
-import {
-  createInfo,
-  flush,
-  mockBackend,
-  plane,
-  planesModel,
-  seed,
-  session,
-} from "../test/fixtures";
+import { createInfo, flush, mockBackend, plane, planesModel, seed } from "../test/fixtures";
 import { CreatePlaneDialog } from "./CreatePlaneDialog";
 
 const projects = [
@@ -28,16 +20,16 @@ describe("CreatePlaneDialog", () => {
   });
 
   describe("Empty", () => {
-    it("makes a draft plane, selects it and opens a session", async () => {
-      const backend = mockBackend({ session_open: () => session(1, "scratch") });
+    it("makes a draft plane, selects it and opens the launcher", async () => {
+      const backend = mockBackend();
       render(<CreatePlaneDialog initial={null} failure={null} />);
       await userEvent.type(screen.getByRole("textbox", { name: /Id/ }), "scratch");
       await userEvent.click(screen.getByRole("button", { name: "Create" }));
       await flush();
       expect(backend.called("plane_create_draft")[0]?.args).toEqual({ id: "scratch" });
       expect(useStore.getState().selectedPlaneId).toBe("scratch");
-      expect(useStore.getState().dialog).toBeNull();
-      expect(backend.called("session_open")).toHaveLength(1);
+      expect(useStore.getState().dialog).toEqual({ kind: "launcher", planeId: "scratch" });
+      expect(backend.called("session_open")).toHaveLength(0);
     });
 
     it("validates the id as you type", async () => {

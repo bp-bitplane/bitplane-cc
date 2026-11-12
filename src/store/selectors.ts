@@ -87,6 +87,11 @@ export function resumableAgents(
   });
 }
 
+/** An agent kind as people call it. */
+export function agentKindName(kind: string): string {
+  return kind === "claude" ? "Claude" : kind;
+}
+
 /** What a tab's agent is doing, in words; `null` for a state this build doesn't know. */
 export function agentStateLabel(agent: AgentInfo): string | null {
   switch (agent.state.kind) {

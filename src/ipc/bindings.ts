@@ -77,6 +77,7 @@ export const commands = {
 /** Events */
 export const events = {
 	agentChanged: makeEvent<AgentChanged>("agent-changed"),
+	agentKindsChanged: makeEvent<AgentKindsChanged>("agent-kinds-changed"),
 	createChanged: makeEvent<CreateChanged>("create-changed"),
 	daemonChanged: makeEvent<DaemonChanged>("daemon-changed"),
 	fileTabsChanged: makeEvent<FileTabsChanged>("file-tabs-changed"),
@@ -121,6 +122,16 @@ export type AgentInfo = {
 	 */
 	polled: boolean,
 };
+
+/**  Whether an agent terminal of `kind` can be launched on this host. */
+export type AgentKindInfo = {
+	kind: string,
+	available: boolean,
+	/**  Why it can't be launched, such as `claude` missing from `PATH`. */
+	error: string | null,
+};
+
+export type AgentKindsChanged = AgentKindInfo[];
 
 /**  The agent a Claude terminal launches. */
 export type AgentOpen = {
@@ -397,6 +408,7 @@ export type Snapshot = {
 	planes: PlanesModel,
 	sessions: SessionInfo[],
 	agents: AgentInfo[],
+	agentKinds: AgentKindInfo[],
 	creates: CreateInfo[],
 };
 

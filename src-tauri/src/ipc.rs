@@ -13,7 +13,7 @@ use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
 use tauri::{State, Wry};
 use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_events};
 
-use crate::agents::AgentEvent;
+use crate::agents::{AgentEvent, AgentKindInfo};
 use crate::app::{App, PlanesModel, Snapshot};
 use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
@@ -44,6 +44,9 @@ pub struct SessionChanged(pub SessionEvent);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct AgentChanged(pub AgentEvent);
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+pub struct AgentKindsChanged(pub Vec<AgentKindInfo>);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct CreateChanged(pub CreateEvent);
@@ -97,6 +100,7 @@ pub fn builder() -> Builder<Wry> {
             PlanesChanged,
             SessionChanged,
             AgentChanged,
+            AgentKindsChanged,
             CreateChanged,
             SourceControlChanged,
             FilesChanged,

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { SessionInfo } from "../ipc";
-import { agentOf, findPlane } from "../store/selectors";
+import { agentKindName, agentOf, findPlane } from "../store/selectors";
 import { closeSession, restartSession, useStore } from "../store/store";
 import styles from "./AgentOverlay.module.css";
 
@@ -19,7 +19,7 @@ export function AgentOverlay({ session, visible }: { session: SessionInfo; visib
 
   const { status } = session;
   if (status.kind === "running") return null;
-  const name = agentName(session.agent ?? "");
+  const name = agentKindName(session.agent ?? "");
   const failed = status.kind === "spawnFailed";
   const title = failed ? `${name} couldn't start` : `${name} exited`;
   const code = status.kind === "exited" && status.code !== 0 ? ` (code ${status.code})` : "";
@@ -64,8 +64,4 @@ export function AgentOverlay({ session, visible }: { session: SessionInfo; visib
 /** Whether the session shows the overlay instead of taking keystrokes. */
 export function agentOverlaid(session: SessionInfo): boolean {
   return session.agent !== null && session.status.kind !== "running";
-}
-
-function agentName(kind: string): string {
-  return kind === "claude" ? "Claude" : kind;
 }

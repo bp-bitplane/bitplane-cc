@@ -28,6 +28,10 @@ _Avoid_: Session (when meaning the UI element)
 The UI handle of one session; there is always exactly one session tab per session, including sessions another client opened.
 _Avoid_: Terminal tab
 
+**Launcher**:
+The palette that starts something in a plane: a terminal, an agent terminal of a kind the daemon can launch, or one of the plane's agent sessions resumed; "+", ⌘T and an empty plane open it.
+_Avoid_: New-session dialog
+
 **Tab name**:
 The user's name for a session tab, kept apart from the title the program in it sets.
 _Avoid_: Title (that is the program's)

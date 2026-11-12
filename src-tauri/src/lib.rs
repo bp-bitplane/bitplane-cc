@@ -30,8 +30,8 @@ use tauri_specta::Event;
 use crate::app::{App, DataDir, Emitters};
 use crate::daemon::DaemonLink;
 use crate::ipc::{
-    AgentChanged, CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged, PlanesChanged,
-    SessionChanged, SourceControlChanged,
+    AgentChanged, AgentKindsChanged, CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged,
+    PlanesChanged, SessionChanged, SourceControlChanged,
 };
 
 /// Where tauri-specta writes the TypeScript bindings.
@@ -82,6 +82,12 @@ pub fn run() {
                     let handle = handle.clone();
                     Arc::new(move |event| {
                         let _ = AgentChanged(event).emit(&handle);
+                    })
+                },
+                agent_kinds: {
+                    let handle = handle.clone();
+                    Arc::new(move |kinds| {
+                        let _ = AgentKindsChanged(kinds).emit(&handle);
                     })
                 },
                 create: {

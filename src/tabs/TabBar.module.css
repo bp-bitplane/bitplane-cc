@@ -112,13 +112,32 @@
   border-radius: 3px;
 }
 
-.agent {
-  width: 7px;
-  height: 7px;
+.slot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
   margin-left: 4px;
   flex-shrink: 0;
+}
+
+.number {
+  font: 600 12px var(--mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.agent {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   border: 1.5px solid var(--dim);
+  background: var(--bg);
+  box-shadow: 0 0 0 1.5px var(--bg);
 }
 
 .agent[data-state="busy"] {
