@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useStore } from "../store/store";
 import {
+  agent,
   flush,
   mockBackend,
   plane,
@@ -193,5 +194,35 @@ describe("Sidebar", () => {
     fireEvent.pointerUp(handle, { pointerId: 1 });
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
     expect(useStore.getState().sidebarWidth).toBe(464);
+  });
+});
+
+describe("Sidebar sessions", () => {
+  it("show their kind, agent state and ⌘ number like their tabs", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a"), plane("b")]),
+      sessions: sessionsById(
+        session(1, "a"),
+        session(2, "a", { agent: "claude", name: "review", title: "✳ Claude Code" }),
+        session(3, "b", { agent: "claude" }),
+      ),
+      agents: { now: agent("now", "key-2", { state: { kind: "busy" } }) },
+      selectedPlaneId: "a",
+    });
+    const { container } = render(<Sidebar />);
+    const kinds = () =>
+      [...container.querySelectorAll("[data-kind]")].map((icon) => icon.getAttribute("data-kind"));
+    expect(kinds()).toEqual(["terminal", "claude", "claude"]);
+    expect(screen.getByRole("img", { name: "Agent busy" })).toBeInTheDocument();
+    const named = screen.getByRole("button", { name: "2 · review" });
+    expect(named).toHaveTextContent("review✳ Claude Code");
+
+    fireEvent.keyDown(window, { key: "Meta", code: "MetaLeft", metaKey: true });
+    expect(kinds()).toEqual(["claude"]);
+    expect(named.previousElementSibling).toHaveTextContent("2");
+
+    fireEvent.keyUp(window, { key: "Meta", code: "MetaLeft", metaKey: false });
+    expect(kinds()).toEqual(["terminal", "claude", "claude"]);
   });
 });

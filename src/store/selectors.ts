@@ -122,6 +122,12 @@ export function tabLabel(session: SessionInfo, position: number): string {
   return `${position} · ${sessionTitle(session)}`;
 }
 
+/** The tab's label with the program's title beside a named tab's name. */
+export function tabTooltip(session: SessionInfo, position: number): string {
+  const title = programTitle(session);
+  return title ? `${tabLabel(session, position)} — ${title}` : tabLabel(session, position);
+}
+
 /** The user's name for the tab, else the program's title, else the shell. */
 export function sessionTitle(session: SessionInfo): string {
   return session.name ?? session.title ?? session.shellName;
