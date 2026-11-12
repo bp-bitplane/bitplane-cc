@@ -17,7 +17,7 @@ The plane's directory; every new session starts here.
 _Avoid_: Plane path, plane folder
 
 **Session**:
-One shell process with its own terminal, belonging to exactly one plane; the host's session daemon owns it, so it outlives cc.
+One process with its own terminal, belonging to exactly one plane: a shell, or the agent itself in an agent terminal; the host's session daemon owns it, so it outlives cc.
 _Avoid_: Terminal, shell, tab
 
 **Tab**:
@@ -27,6 +27,10 @@ _Avoid_: Session (when meaning the UI element)
 **Session tab**:
 The UI handle of one session; there is always exactly one session tab per session, including sessions another client opened.
 _Avoid_: Terminal tab
+
+**Launcher**:
+The palette that starts something in a plane: a terminal, an agent terminal of a kind the daemon can launch, or one of the plane's agent sessions resumed; "+", ⌘T and an empty plane open it.
+_Avoid_: New-session dialog
 
 **Tab name**:
 The user's name for a session tab, kept apart from the title the program in it sets.
@@ -60,8 +64,19 @@ _Avoid_: Session (when meaning the agent's conversation), chat
 The record of which agent session a session last ran; restoring the session resumes that agent session.
 _Avoid_: Agent binding, resume token
 
+**Agent**:
+The daemon's live record of one agent session: its kind, state, cwd, last error, tracking and the session it runs in.
+
+**Agent state**:
+Whether an agent is working or its conversation ended: resuming, idle, busy, waiting or exited.
+_Avoid_: Busy session, Exited session (those are about a session's terminal, not the agent's turn or conversation)
+
+**Agent terminal**:
+A session whose PTY child is the agent itself, such as `claude`, with no shell.
+_Avoid_: Claude terminal (except for the agent terminal of the claude kind)
+
 **Restore**:
-Bringing the sessions back after the session daemon itself restarted, each with a fresh shell in its plane and its agent session resumed.
+Bringing the sessions back after the session daemon itself restarted, each with a fresh shell in its plane, or its agent relaunched on its agent session.
 _Avoid_: Reattach (relaunching cc or reloading reattaches to the running sessions, with a snapshot), persist
 
 **Daemon restart**:

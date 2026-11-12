@@ -6,6 +6,7 @@ import { create } from "zustand";
 import {
   type AgentEvent,
   type AgentInfo,
+  type AgentKindInfo,
   type AgentOpen,
   type CreateArgs,
   type CreateEvent,
@@ -55,6 +56,7 @@ export const MAX_SIDEBAR_WIDTH = 480;
 
 export type Dialog =
   | { kind: "palette" }
+  | { kind: "launcher"; planeId: string }
   | {
       kind: "create";
       initial: CreateArgs | null;
@@ -83,6 +85,8 @@ export interface State {
   sessions: Record<number, SessionInfo>;
   /** Agents by their agent session id; a tab finds its own by its `key`. */
   agents: Record<string, AgentInfo>;
+  /** The agent kinds the daemon can launch, or why not; the launcher lists them. */
+  agentKinds: AgentKindInfo[];
   creates: Record<string, CreateInfo>;
   /** New plane id → the plane it duplicates, while its create runs. */
   duplicates: Record<string, string>;
@@ -135,6 +139,7 @@ export const initialState = (): State => ({
   },
   sessions: {},
   agents: {},
+  agentKinds: [],
   creates: {},
   duplicates: {},
   selectedPlaneId: null,
@@ -189,6 +194,7 @@ export async function connect(): Promise<() => void> {
     events.planesChanged.listen((e) => applyPlanes(e.payload)),
     events.sessionChanged.listen((e) => applySession(e.payload)),
     events.agentChanged.listen((e) => applyAgent(e.payload)),
+    events.agentKindsChanged.listen((e) => set({ agentKinds: e.payload })),
     events.createChanged.listen((e) => applyCreate(e.payload)),
     events.sourceControlChanged.listen((e) => applySourceControl(e.payload)),
     events.filesChanged.listen((e) => applyFilesChanged(e.payload)),
@@ -245,7 +251,14 @@ export function loadSnapshot(snapshot: Snapshot): void {
   for (const create of snapshot.creates) {
     if (create.status.kind === "scriptFailed") scriptFailed[create.id] = true;
   }
-  set({ planes: snapshot.planes, sessions, agents, creates, scriptFailed });
+  set({
+    planes: snapshot.planes,
+    sessions,
+    agents,
+    agentKinds: snapshot.agentKinds,
+    creates,
+    scriptFailed,
+  });
 }
 
 export function applyPlanes(planes: PlanesModel): void {
@@ -260,6 +273,7 @@ export function applySession({ id, session }: SessionEvent): void {
     if (!previous) return;
     const { [id]: _, ...sessions } = state.sessions;
     set({ sessions, activeTab: activeAfterClosing(state, previous.planeId, id) });
+    openLauncherIfEmpty(previous.planeId);
     return;
   }
   const activeTab =
@@ -293,11 +307,7 @@ export function applyCreate({ id, create }: CreateEvent): void {
 export function selectPlane(planeId: string): void {
   set({ selectedPlaneId: planeId, notice: null });
   const state = get();
-  const plane = findPlane(state, planeId);
-  // A plane missing from the list was most likely just created and isn't
-  // listed yet; the backend still knows where its root is.
-  const openable = !plane || plane.kind === "plane" || plane.kind === "draft";
-  if (openable && sessionsOf(state, planeId).length === 0) void openSession(planeId);
+  if (openable(state, planeId) && tabsOf(state, planeId).length === 0) openLauncher(planeId);
 }
 
 export function selectSession(planeId: string, sessionId: number): void {
@@ -317,9 +327,7 @@ export async function openSession(
   planeId = get().selectedPlaneId,
   agent: AgentOpen | null = null,
 ): Promise<void> {
-  if (!planeId) return;
-  const plane = findPlane(get(), planeId);
-  if (plane && (plane.kind === "gone" || plane.kind === "creating")) return;
+  if (!planeId || !openable(get(), planeId)) return;
   try {
     const session = await commands.sessionOpen(planeId, agent);
     // Events are authoritative; the reply only fills in when none arrived yet.
@@ -347,10 +355,16 @@ export async function resumeAgent(agent: AgentInfo, planeId: string): Promise<vo
   await openSession(planeId, { kind: agent.kind, resume: agent.agentSession, cwd: agent.cwd });
 }
 
-/** A new Claude terminal in the plane root. */
-export async function openClaudeTerminal(planeId: string): Promise<void> {
+/** "+", ⌘T and the empty-plane view: what to start in the plane. */
+export function openLauncher(planeId = get().selectedPlaneId): void {
+  if (!planeId || !openable(get(), planeId)) return;
+  set({ dialog: { kind: "launcher", planeId } });
+}
+
+/** From the launcher: a regular terminal, or a new agent terminal of `kind`. */
+export async function startNewSession(planeId: string, kind: string | null): Promise<void> {
   closeDialog();
-  await openSession(planeId, { kind: "claude", resume: null, cwd: null });
+  await openSession(planeId, kind === null ? null : { kind, resume: null, cwd: null });
 }
 
 /** Close a session, asking first when something other than the shell runs. */
@@ -475,6 +489,7 @@ export function closeFileTab(planeId: string, key: FileTabKey): void {
       [planeId]: fileTabsOf(state, planeId).filter((tab) => fileTabKey(tab) !== key),
     },
   }));
+  openLauncherIfEmpty(planeId);
 }
 
 export function goToTab(position: number): void {
@@ -773,7 +788,23 @@ function clampWidth(width: number, min: number, max: number): number {
   return Math.round(Math.min(max, Math.max(min, width)));
 }
 
+/** The selected plane's last tab closed: offer what to start next, unless a dialog is up. */
+function openLauncherIfEmpty(planeId: string): void {
+  const state = get();
+  if (state.selectedPlaneId !== planeId || state.dialog !== null) return;
+  if (tabsOf(state, planeId).length === 0) openLauncher(planeId);
+}
+
 /** Select the tab the agent session runs in, if it runs in one. */
+/**
+ * Whether sessions can start in the plane. One missing from the list was most
+ * likely just created and isn't listed yet; the backend knows its root.
+ */
+function openable(state: State, planeId: string): boolean {
+  const plane = findPlane(state, planeId);
+  return !plane || plane.kind === "plane" || plane.kind === "draft";
+}
+
 /** IPC itself rejects with a string rather than an `OpenError`. */
 function openFailure(error: unknown): OpenError {
   return typeof error === "object" && error !== null && "code" in error

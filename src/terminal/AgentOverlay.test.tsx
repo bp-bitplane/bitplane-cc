@@ -57,6 +57,14 @@ describe("AgentOverlay", () => {
     expect(backend.called("session_restart")[0]?.args).toEqual({ id: 1 });
   });
 
+  it("offers Start again when the only linked agent is another tab's", () => {
+    mockBackend();
+    show(claude({ kind: "exited", code: 0 }), {
+      a2: agent("a2", "key-2", { state: { kind: "exited" } }),
+    });
+    expect(screen.getByRole("button", { name: "Start again" })).toBeInTheDocument();
+  });
+
   it("closes the tab on Enter or Escape", async () => {
     const backend = mockBackend();
     show();

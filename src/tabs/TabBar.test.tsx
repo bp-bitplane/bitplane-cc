@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useStore } from "../store/store";
 import {
@@ -13,7 +13,7 @@ import {
 import { TabBar } from "./TabBar";
 
 describe("TabBar", () => {
-  it("numbers tabs by position and marks the active one", () => {
+  it("names tabs by position and marks the active one", () => {
     mockBackend();
     seed({
       planes: planesModel([plane("a")]),
@@ -22,12 +22,61 @@ describe("TabBar", () => {
     });
     render(<TabBar planeId="a" />);
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["1 · vim", "2 · zsh"]);
+    expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["1 · vim", "2 · zsh"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["vim", "zsh"]);
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
   });
 
-  it("switches tabs and opens new sessions", async () => {
-    const backend = mockBackend({ session_open: () => session(9, "a") });
+  it("shows each tab's kind as an icon", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a")]),
+      sessions: sessionsById(
+        session(1, "a"),
+        session(2, "a", { agent: "claude" }),
+        session(3, "a", { agent: "codex" }),
+      ),
+    });
+    const { container } = render(<TabBar planeId="a" />);
+    const icons = [...container.querySelectorAll("[data-kind]")];
+    expect(icons.map((icon) => icon.getAttribute("data-kind"))).toEqual([
+      "terminal",
+      "claude",
+      "agent",
+    ]);
+  });
+
+  it("swaps the icons for tab numbers only while ⌘ is held, in the same slot", () => {
+    mockBackend();
+    seed({
+      planes: planesModel([plane("a")]),
+      sessions: sessionsById(session(1, "a"), session(2, "a", { agent: "claude" })),
+      agents: { now: agent("now", "key-2", { state: { kind: "busy" } }) },
+    });
+    const { container } = render(<TabBar planeId="a" />);
+    const slots = () => screen.getAllByRole("tab").map((tab) => tab.previousElementSibling);
+    const before = slots();
+    expect(before.map((slot) => slot?.textContent)).toEqual(["", ""]);
+
+    fireEvent.keyDown(window, { key: "Meta", code: "MetaLeft", metaKey: true });
+    for (const [i, slot] of slots().entries()) expect(slot).toBe(before[i]);
+    expect(slots().map((slot) => slot?.textContent)).toEqual(["1", "2"]);
+    expect(container.querySelectorAll("[data-kind]")).toHaveLength(0);
+    expect(screen.getByRole("img", { name: "Agent busy" })).toBeInTheDocument();
+
+    fireEvent.keyUp(window, { key: "Meta", code: "MetaLeft", metaKey: false });
+    expect(slots().map((slot) => slot?.textContent)).toEqual(["", ""]);
+    expect(container.querySelectorAll("[data-kind]")).toHaveLength(2);
+
+    fireEvent.keyDown(window, { key: "Meta", code: "MetaLeft", metaKey: true });
+    fireEvent.blur(window);
+    expect(slots().map((slot) => slot?.textContent)).toEqual(["", ""]);
+    fireEvent.keyDown(window, { key: "Control", code: "ControlLeft", ctrlKey: true });
+    expect(slots().map((slot) => slot?.textContent)).toEqual(["", ""]);
+  });
+
+  it("switches tabs and opens the launcher", async () => {
+    const backend = mockBackend();
     seed({
       planes: planesModel([plane("a")]),
       sessions: sessionsById(session(4, "a"), session(8, "a")),
@@ -37,10 +86,11 @@ describe("TabBar", () => {
     await userEvent.click(screen.getByRole("tab", { name: "2 · zsh" }));
     expect(useStore.getState().activeTab.a).toBe(8);
     await userEvent.click(screen.getByRole("button", { name: "New session" }));
-    expect(backend.called("session_open")).toHaveLength(1);
+    expect(useStore.getState().dialog).toEqual({ kind: "launcher", planeId: "a" });
+    expect(backend.called("session_open")).toHaveLength(0);
   });
 
-  it("shows each tab's agent state", () => {
+  it("shows each tab's agent state as a badge on its icon", () => {
     mockBackend();
     seed({
       planes: planesModel([plane("a")]),
@@ -58,6 +108,9 @@ describe("TabBar", () => {
       },
     });
     render(<TabBar planeId="a" />);
+    for (const badge of screen.getAllByRole("img")) {
+      expect(badge.parentElement?.querySelector("[data-kind]")).not.toBeNull();
+    }
     expect(screen.getAllByRole("img").map((dot) => dot.getAttribute("aria-label"))).toEqual([
       "Agent busy",
       "Agent waiting for permission",
@@ -132,11 +185,7 @@ describe("TabBar", () => {
     });
     render(<TabBar planeId="a" />);
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual([
-      "1 · zsh",
-      "index.ts (Index)api",
-      "index.tsweb",
-    ]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["zsh", "index.ts (Index)api", "index.tsweb"]);
     expect(tabs[1]).toHaveAttribute("title", "a/api");
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
   });

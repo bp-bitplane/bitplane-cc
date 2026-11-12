@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { SessionInfo } from "../ipc";
-import { agentOf, findPlane } from "../store/selectors";
+import { findPlane, hasAgentLink } from "../store/selectors";
 import { closeSession, restartSession, useStore } from "../store/store";
+import { agentKindName } from "../tabs/KindIcon";
 import styles from "./AgentOverlay.module.css";
 
 /**
@@ -10,7 +11,7 @@ import styles from "./AgentOverlay.module.css";
  * agent session when the tab has one.
  */
 export function AgentOverlay({ session, visible }: { session: SessionInfo; visible: boolean }) {
-  const linked = useStore((s) => agentOf(s, session) !== undefined);
+  const linked = useStore((s) => hasAgentLink(s, session));
   const planeGone = useStore((s) => findPlane(s, session.planeId)?.kind === "gone");
   const ok = useRef<HTMLButtonElement>(null);
   const { status } = session;
@@ -19,7 +20,7 @@ export function AgentOverlay({ session, visible }: { session: SessionInfo; visib
   }, [visible, status.kind]);
 
   if (status.kind === "running") return null;
-  const name = agentName(session.agent ?? "");
+  const name = agentKindName(session.agent ?? "");
   const failed = status.kind === "spawnFailed";
   const title = failed ? `${name} couldn't start` : `${name} exited`;
   const code = status.kind === "exited" && status.code !== 0 ? ` (code ${status.code})` : "";
@@ -64,8 +65,4 @@ export function AgentOverlay({ session, visible }: { session: SessionInfo; visib
 /** Whether the session shows the overlay instead of taking keystrokes. */
 export function agentOverlaid(session: SessionInfo): boolean {
   return session.agent !== null && session.status.kind !== "running";
-}
-
-function agentName(kind: string): string {
-  return kind === "claude" ? "Claude" : kind;
 }

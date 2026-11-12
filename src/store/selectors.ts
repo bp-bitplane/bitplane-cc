@@ -62,6 +62,14 @@ export function agentOf(state: Pick<State, "agents">, session: SessionInfo): Age
   return agents.find((a) => a.state.kind !== "exited") ?? agents[0];
 }
 
+/**
+ * Whether restarting the tab resumes an agent session. Sessions carry no link
+ * on the wire; the daemon lists the linked agent with the tab (ADR 0031).
+ */
+export function hasAgentLink(state: Pick<State, "agents">, session: SessionInfo): boolean {
+  return Object.values(state.agents).some((a) => a.session === session.key);
+}
+
 /** The tab a live agent session runs in. */
 export function sessionOfAgent(
   state: Pick<State, "agents" | "sessions">,

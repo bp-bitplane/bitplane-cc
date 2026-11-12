@@ -106,7 +106,7 @@ pub struct OpenOptions {
     pub agent: Option<AgentOpen>,
 }
 
-/// The agent a Claude terminal launches.
+/// The agent an agent terminal launches.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentOpen {

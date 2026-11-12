@@ -11,7 +11,7 @@ import {
   dismissNotice,
   openCreateDialog,
   openDialog,
-  openSession,
+  openLauncher,
   refresh,
   retryDaemon,
   type State,
@@ -145,12 +145,12 @@ function Screen({ view }: { view: MainView }) {
         <Centered
           title={`No sessions in ${planeId}`}
           actions={
-            <button type="button" className="primary" onClick={() => void openSession(planeId)}>
+            <button type="button" className="primary" onClick={() => openLauncher(planeId)}>
               New session
             </button>
           }
         >
-          <p>Press {labelFor(platform, "newTab")} to start a shell in the plane root.</p>
+          <p>Press {labelFor(platform, "newTab")} to start a terminal or an agent in the plane.</p>
         </Centered>
       );
     default:

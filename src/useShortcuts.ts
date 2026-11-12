@@ -7,7 +7,7 @@ import {
   goToPlane,
   goToTab,
   openCreateDialog,
-  openSession,
+  openLauncher,
   refresh,
   selectTool,
   togglePalette,
@@ -37,7 +37,7 @@ export function useShortcuts(): void {
 export function run({ action, digit = 1 }: Match): void {
   switch (action) {
     case "newTab":
-      void openSession();
+      openLauncher();
       break;
     case "closeTab":
       closeActiveTab();

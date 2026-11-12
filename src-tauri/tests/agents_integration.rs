@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use bitplane_cc_lib::agents::{AgentEvent, AgentInfo, AgentState, Agents};
+use bitplane_cc_lib::agents::{AgentEvent, AgentInfo, AgentKindInfo, AgentState, Agents};
 use bitplane_cc_lib::daemon::{DaemonLink, DaemonStatus};
 use bitplane_cc_lib::migrate::{self, Legacy};
 use bitplane_cc_lib::sessions::{
@@ -103,6 +103,15 @@ async fn a_claude_terminal_follows_its_agent_and_resumes_after_it_exits() {
     let _daemon = host.serve().await;
     let cc = Cc::connect(&host).await;
     host.next_agent("agent-1");
+    cc.wait_for_kinds(|kinds| {
+        kinds
+            == [AgentKindInfo {
+                kind: "claude".into(),
+                available: true,
+                error: None,
+            }]
+    })
+    .await;
 
     let tab = cc.open(Some(claude(None, None))).await;
     assert_eq!(tab.agent.as_deref(), Some("claude"));
@@ -224,9 +233,24 @@ async fn a_claude_terminal_that_cannot_launch_keeps_its_tab_and_retries() {
         })
         .await;
     assert_eq!(failed.agent.as_deref(), Some("claude"));
+    // The failed launch makes the daemon broadcast `agent.kind.changed`.
+    let unavailable = cc
+        .wait_for_kinds(|kinds| kinds.iter().any(|k| !k.available))
+        .await;
+    assert_eq!(unavailable[0].kind, "claude");
+    assert!(
+        unavailable[0]
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("claude")),
+        "{unavailable:?}"
+    );
+    assert_eq!(cc.kind_events().last(), Some(&unavailable));
 
     std::fs::rename(&away, &fake).unwrap();
     cc.sessions.restart(tab.id).await.unwrap();
+    cc.wait_for_kinds(|kinds| kinds.iter().all(|k| k.available))
+        .await;
     let agent = cc
         .wait_for_agent("agent-6", |a| a.state == AgentState::Idle)
         .await;
@@ -439,6 +463,7 @@ struct Cc {
     agents: Arc<Agents>,
     events: Mutex<mpsc::UnboundedReceiver<AgentEvent>>,
     seen: Mutex<Vec<AgentEvent>>,
+    kind_events: Mutex<mpsc::UnboundedReceiver<Vec<AgentKindInfo>>>,
 }
 
 impl Cc {
@@ -477,10 +502,14 @@ impl Cc {
         );
         let sessions = Sessions::new(&link, SessionConfig::default(), Arc::new(|_| {}));
         let (event_tx, events) = mpsc::unbounded_channel();
+        let (kinds_tx, kind_events) = mpsc::unbounded_channel();
         let agents = Agents::new(
             &link,
             Arc::new(move |event| {
                 let _ = event_tx.send(event);
+            }),
+            Arc::new(move |kinds| {
+                let _ = kinds_tx.send(kinds);
             }),
         );
         link.start();
@@ -491,6 +520,7 @@ impl Cc {
             agents,
             events: Mutex::new(events),
             seen: Mutex::default(),
+            kind_events: Mutex::new(kind_events),
         }
     }
 
@@ -517,6 +547,33 @@ impl Cc {
             seen.push(event);
         }
         seen.clone()
+    }
+
+    /// Every `agent_kinds_changed` emitted since the last call.
+    fn kind_events(&self) -> Vec<Vec<AgentKindInfo>> {
+        let mut events = Vec::new();
+        while let Ok(kinds) = self.kind_events.lock().unwrap().try_recv() {
+            events.push(kinds);
+        }
+        events
+    }
+
+    async fn wait_for_kinds(
+        &self,
+        matches: impl Fn(&[AgentKindInfo]) -> bool,
+    ) -> Vec<AgentKindInfo> {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let kinds = self.agents.kinds();
+            if matches(&kinds) {
+                return kinds;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for kinds: {kinds:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 
     async fn wait_for_session(

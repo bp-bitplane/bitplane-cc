@@ -1,8 +1,8 @@
 import { File, Plus, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AgentInfo, SessionInfo } from "../ipc";
-import { labelFor } from "../keymap";
+import { labelFor, type Platform } from "../keymap";
 import {
   activeTabId,
   agentOf,
@@ -11,11 +11,12 @@ import {
   findPlane,
   programTitle,
   sessionsOf,
+  sessionTitle,
   tabLabel,
 } from "../store/selectors";
 import {
   closeFileTab,
-  openSession,
+  openLauncher,
   pinFileTab,
   renameSession,
   requestCloseSession,
@@ -24,11 +25,17 @@ import {
   useStore,
 } from "../store/store";
 import { fileTabKey, fileTabTitle, folderOf, folderSuffixes } from "./fileTabs";
+import { KindIcon } from "./KindIcon";
 import styles from "./TabBar.module.css";
 
-/** The selected plane's Session tabs, numbered by position, then its File tabs. */
+/**
+ * The selected plane's Session tabs, each with its kind's icon, then its File
+ * tabs. Holding the tab-switching modifier shows each Session tab's number in
+ * place of its icon.
+ */
 export function TabBar({ planeId }: { planeId: string }) {
   const platform = useStore((s) => s.platform);
+  const numbered = useNumbersShown(platform);
   const sessions = useStore(useShallow((s) => sessionsOf(s, planeId)));
   const fileTabs = useStore((s) => fileTabsOf(s, planeId));
   const current = useStore((s) => activeTabId(s, planeId));
@@ -49,6 +56,7 @@ export function TabBar({ planeId }: { planeId: string }) {
           session={session}
           position={index + 1}
           active={session.id === current}
+          numbered={numbered}
         />
       ))}
       {fileTabs.map((tab) => {
@@ -95,7 +103,7 @@ export function TabBar({ planeId }: { planeId: string }) {
         title={`New session (${labelFor(platform, "newTab")})`}
         aria-label="New session"
         tabIndex={-1}
-        onClick={() => void openSession(planeId)}
+        onClick={() => openLauncher(planeId)}
       >
         <Plus size={15} />
       </button>
@@ -108,10 +116,12 @@ function SessionTab({
   session,
   position,
   active,
+  numbered,
 }: {
   session: SessionInfo;
   position: number;
   active: boolean;
+  numbered: boolean;
 }) {
   const agent = useStore((s) => agentOf(s, session));
   const [editing, setEditing] = useState(false);
@@ -128,7 +138,14 @@ function SessionTab({
 
   return (
     <div className={`${styles.tab} ${active ? styles.active : ""}`}>
-      {agent && <AgentDot agent={agent} />}
+      <span className={styles.slot}>
+        {numbered ? (
+          <span className={styles.number}>{position}</span>
+        ) : (
+          <KindIcon kind={session.agent} />
+        )}
+        {agent && <AgentBadge agent={agent} />}
+      </span>
       {editing ? (
         <input
           className={styles.rename}
@@ -158,7 +175,7 @@ function SessionTab({
             setEditing(true);
           }}
         >
-          {label}
+          {sessionTitle(session)}
           {title && <span className={styles.suffix}>{title}</span>}
         </button>
       )}
@@ -175,7 +192,7 @@ function SessionTab({
   );
 }
 
-function AgentDot({ agent }: { agent: AgentInfo }) {
+function AgentBadge({ agent }: { agent: AgentInfo }) {
   const state = agentStateLabel(agent);
   if (state === null) return null;
   const label = `Agent ${state}`;
@@ -188,4 +205,23 @@ function AgentDot({ agent }: { agent: AgentInfo }) {
       title={label}
     />
   );
+}
+
+/** Whether the modifier of the go-to-tab shortcut (⌘ on macOS) is held down. */
+function useNumbersShown(platform: Platform): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    const update = (e: KeyboardEvent) =>
+      setHeld(platform === "mac" ? e.metaKey : e.ctrlKey && e.altKey);
+    const release = () => setHeld(false);
+    window.addEventListener("keydown", update, true);
+    window.addEventListener("keyup", update, true);
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("keydown", update, true);
+      window.removeEventListener("keyup", update, true);
+      window.removeEventListener("blur", release);
+    };
+  }, [platform]);
+  return held;
 }
