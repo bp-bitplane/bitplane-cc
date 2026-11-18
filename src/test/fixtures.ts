@@ -92,7 +92,7 @@ export function createInfo(id: string, overrides: Partial<CreateInfo> = {}): Cre
       id,
       branch: "feat/x",
       members: [{ spec: "@api", branch: null }],
-      intent: "auto",
+      intent: "resolve",
       noFetch: false,
       noScripts: false,
     },

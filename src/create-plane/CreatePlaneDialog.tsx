@@ -131,7 +131,7 @@ function ProjectsForm({
   );
   const [id, setId] = useState(initial?.id ?? "");
   const [idEdited, setIdEdited] = useState(Boolean(initial?.id));
-  const [intent, setIntent] = useState<BranchIntent>(initial?.intent ?? "auto");
+  const [intent, setIntent] = useState<BranchIntent>(initial?.intent ?? "resolve");
   const [noFetch, setNoFetch] = useState(initial?.noFetch ?? false);
   const [noScripts, setNoScripts] = useState(initial?.noScripts ?? false);
   const [search, setSearch] = useState("");
@@ -172,7 +172,7 @@ function ProjectsForm({
         (m): Member => ({ spec: m.spec, branch: m.branch.trim() === "" ? null : m.branch.trim() }),
       ),
       intent,
-      noFetch: intent !== "auto" && noFetch,
+      noFetch: intent !== "resolve" && noFetch,
       noScripts,
     };
     setBusy(true);
@@ -298,9 +298,9 @@ function ProjectsForm({
         <div className={styles.radios}>
           {(
             [
-              ["auto", "Auto", "Check it out if it exists, else create it"],
-              ["new", "New", "--new-branch"],
-              ["existing", "Existing", "--existing-branch"],
+              ["resolve", "Auto", "Check it out if it exists, else create it"],
+              ["require_new", "New", "--new-branch"],
+              ["require_existing", "Existing", "--existing-branch"],
             ] as const
           ).map(([value, label, title]) => (
             <label key={value} title={title}>
@@ -319,11 +319,11 @@ function ProjectsForm({
 
       <details className={styles.advanced}>
         <summary>Advanced</summary>
-        <label title={intent === "auto" ? "Needs New or Existing" : undefined}>
+        <label title={intent === "resolve" ? "Needs New or Existing" : undefined}>
           <input
             type="checkbox"
-            disabled={intent === "auto"}
-            checked={intent !== "auto" && noFetch}
+            disabled={intent === "resolve"}
+            checked={intent !== "resolve" && noFetch}
             onChange={(e) => setNoFetch(e.target.checked)}
           />
           Skip fetch

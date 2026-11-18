@@ -156,8 +156,6 @@ export type AppStatus = { kind: "loading" } | { kind: "ready" } | { kind: "bpNot
 /**  `bp list` failed for another reason. */
 { kind: "listFailed"; message: string };
 
-export type BranchIntent = "auto" | "new" | "existing";
-
 export type BusyInfo = {
 	busy: boolean,
 	processName: string | null,
@@ -176,7 +174,7 @@ export type CreateArgs = {
 	id: string,
 	branch: string,
 	members: Member[],
-	intent: BranchIntent,
+	intent: import("./bp-contract").BranchIntent,
 	noFetch: boolean,
 	noScripts: boolean,
 };
@@ -203,9 +201,9 @@ export type CreateStatus = { kind: "running" } | { kind: "succeeded" } |
 /**  The plane was built but a post-create script failed; treated as a success. */
 { kind: "scriptFailed" } | 
 /**  Nothing is on disk; the dialog reopens. */
-{ kind: "nothingCreated"; envelope: Envelope | null; retryable: boolean } | 
+{ kind: "nothingCreated"; envelope: import("./bp-contract").ErrorEnvelope | null; retryable: boolean } | 
 /**  A partial plane is left behind; only `bp destroy` cleans it up. */
-{ kind: "partial"; envelope: Envelope | null };
+{ kind: "partial"; envelope: import("./bp-contract").ErrorEnvelope | null };
 
 export type DaemonChanged = DaemonStatus;
 
@@ -238,15 +236,6 @@ export type DiffMode =
 "worktree" | 
 /**  HEAD ↔ worktree. */
 "file";
-
-/**  bp's failure envelope, the last line of stderr. */
-export type Envelope = {
-	error: string,
-	code: number,
-	message: string,
-	problems?: Problem[],
-	remedy?: string | null,
-};
 
 export type FileContents = {
 	old: string,
@@ -335,11 +324,6 @@ export type PlanesModel = {
 	refreshedAt: number | null,
 	envWarning: string | null,
 	planes: PlaneRow[],
-};
-
-export type Problem = {
-	subject?: string | null,
-	message: string,
 };
 
 /**  One project from `bp project list`. */
