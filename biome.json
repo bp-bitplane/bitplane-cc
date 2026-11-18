@@ -7,5 +7,11 @@
   "formatter": { "indentStyle": "space", "lineWidth": 100 },
   "linter": { "rules": { "preset": "recommended" } },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
-  "css": { "parser": { "cssModules": true } }
+  "css": { "parser": { "cssModules": true } },
+  "overrides": [
+    {
+      "includes": ["packages/git-graph/**"],
+      "linter": { "rules": { "style": { "noNonNullAssertion": "off" } } }
+    }
+  ]
 }

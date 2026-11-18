@@ -4,6 +4,5 @@ export default defineConfig({
   test: {
     name: "git-graph",
     globals: true,
-    passWithNoTests: true,
   },
 });
