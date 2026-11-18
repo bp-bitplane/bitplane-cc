@@ -13,6 +13,20 @@ export const layout = (commits: Iterable<GitCommit>, options: LayoutOptions = {}
     .toArray()
     .at(-1)!;
 
+/** Feeds the commits chunk by chunk, the way a paginated log arrives. */
+export const layoutInChunks = (chunks: GitCommit[][], options: LayoutOptions = {}): Graph => {
+  const [first = [], ...rest] = chunks;
+  const graphs = createGraphNodes(
+    first,
+    options.index,
+    options.stashes ?? [],
+    options.visibleTips ?? new Set(),
+  );
+  let graph = graphs.next().value!;
+  for (const chunk of rest) graph = graphs.next(chunk).value!;
+  return graph;
+};
+
 export const commit = (hash: string, parents: string[], subject = hash): GitCommit => ({
   hash,
   parents,
