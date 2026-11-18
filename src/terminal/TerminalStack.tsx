@@ -6,6 +6,7 @@ import { commands, ptyWrite, type SessionInfo } from "../ipc";
 import { findPlane } from "../store/selectors";
 import { closeSession, restartSession, useStore } from "../store/store";
 import { AgentOverlay, agentOverlaid } from "./AgentOverlay";
+import { openClickedLink } from "./links";
 import { attachTerminal, disposeTerminal, terminalCore } from "./registry";
 import styles from "./TerminalStack.module.css";
 
@@ -45,6 +46,7 @@ function TerminalPane({ session, visible }: { session: SessionInfo; visible: boo
       className={`${styles.pane} ${visible ? styles.visible : ""}`}
       aria-hidden={!visible}
       data-session={id}
+      onClickCapture={(event) => openClickedLink(event, core)}
     >
       {core && (
         <Terminal
