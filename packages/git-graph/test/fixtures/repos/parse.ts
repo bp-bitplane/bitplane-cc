@@ -1,7 +1,7 @@
-import type { GitCommit } from "../../../src/git";
+import type { GraphCommit } from "../../../src/createGraph";
 import { commit } from "../../layout";
 
-export const parseLog = (log: string): GitCommit[] =>
+export const parseLog = (log: string): GraphCommit[] =>
   log
     .trim()
     .split("\n")

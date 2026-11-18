@@ -1,5 +1,4 @@
-import type { GraphNode } from "./createGraphNodes";
-import type { GitCommit, GitIndex } from "./git";
+import type { GraphCommit, GraphNode, Wip } from "./createGraph";
 
 export type RailsState = {
   rails: Rail[];
@@ -15,7 +14,7 @@ export type Rail = {
 
 export type Hidden = {
   id: HiddenId;
-  next: string[];
+  next: readonly string[];
 };
 
 declare const railBrand: unique symbol;
@@ -24,7 +23,7 @@ export type RailId = number & { [railBrand]: typeof railBrand };
 declare const hiddenBrand: unique symbol;
 export type HiddenId = number & { [hiddenBrand]: typeof hiddenBrand };
 
-export class Rails {
+export class Rails<T extends GraphCommit> {
   private usedHashes = new Set<string>();
   public readonly state: RailsState = {
     rails: [],
@@ -34,15 +33,11 @@ export class Rails {
   };
 
   public constructor(
-    private stashHashes: Set<string>,
-    private activeRefHashes: Set<string>,
+    private ignoreMergeParentsOf: ReadonlySet<string>,
+    private visibleTips: ReadonlySet<string> | undefined,
   ) {}
 
-  add(
-    commit: GitCommit | GitIndex,
-
-    next?: GitCommit,
-  ): GraphNode | undefined {
+  add(commit: T | Wip, next?: T): GraphNode<T> | undefined {
     if ("hash" in commit && this.usedHashes.has(commit.hash)) {
       return undefined;
     }
@@ -55,7 +50,7 @@ export class Rails {
     let merges: RailId[] = [];
 
     if (children.length === 0) {
-      if ("hash" in commit && this.activeRefHashes.size && !this.activeRefHashes.has(commit.hash)) {
+      if ("hash" in commit && this.visibleTips && !this.visibleTips.has(commit.hash)) {
         // If the commit isn't in existing rail and isn't pointed to by a visible ref, hide it
         if (!this.isHidden(commit)) {
           this.state.hidden.push({
@@ -93,7 +88,11 @@ export class Rails {
       position = first;
     }
 
-    if (commit.parents.length > 1 && "hash" in commit && !this.stashHashes.has(commit.hash)) {
+    if (
+      commit.parents.length > 1 &&
+      "hash" in commit &&
+      !this.ignoreMergeParentsOf.has(commit.hash)
+    ) {
       const [, ...mergedParents] = [...commit.parents];
       for (const parent of mergedParents) {
         if (next && parent === next.hash) {
@@ -121,7 +120,7 @@ export class Rails {
       this.usedHashes.add(commit.hash);
     }
 
-    const node: GraphNode = {
+    const node: GraphNode<T> = {
       commit,
       position,
       rails,
@@ -144,7 +143,7 @@ export class Rails {
     return this.state.nextHiddenId++ as HiddenId;
   }
 
-  private *getChildren(commit: GitCommit | GitIndex) {
+  private *getChildren(commit: T | Wip) {
     if (!("hash" in commit)) return;
 
     for (const r of this.state.rails) {
@@ -154,7 +153,7 @@ export class Rails {
     }
   }
 
-  private isHidden(commit: GitCommit | GitIndex) {
+  private isHidden(commit: T | Wip) {
     if (!("hash" in commit)) return;
 
     for (const h of this.state.hidden) {

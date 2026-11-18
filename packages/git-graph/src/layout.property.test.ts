@@ -1,8 +1,7 @@
 import fc from "fast-check";
 import { toAscii } from "../test/ascii";
 import { commit as c, layout, layoutInChunks } from "../test/layout";
-import type { GraphNode } from "./createGraphNodes";
-import type { GitCommit } from "./git";
+import { type GraphCommit, type GraphNode, isWip } from "./createGraph";
 
 describe("layout invariants over random histories", () => {
   test("every commit becomes exactly one node, in log order", () => {
@@ -70,7 +69,6 @@ describe("layout invariants over random histories", () => {
           fc.tuple(fc.constant(commits), fc.uniqueArray(fc.nat(commits.length))),
         ),
         ([commits, cuts]) => {
-          fc.pre(cuts.every((cut) => !mergesNext(commits[cut - 1], commits[cut])));
           const bounds = [0, ...cuts.sort((a, b) => a - b), commits.length];
           const chunks = bounds.slice(1).map((end, i) => commits.slice(bounds[i], end));
           expect(shape(layoutInChunks(chunks).nodes)).toEqual(shape(layout(commits).nodes));
@@ -79,7 +77,7 @@ describe("layout invariants over random histories", () => {
     );
   });
 
-  test.fails("a chunk boundary right after a merge of the next commit keeps the join", () => {
+  test("a chunk boundary right after a merge of the next commit keeps the join", () => {
     const commits = [
       c("a1", ["a2"]),
       c("b1", ["b2"]),
@@ -94,7 +92,7 @@ describe("layout invariants over random histories", () => {
 });
 
 /** Commits newest first, each parent older than its child, as `git log --date-order` emits. */
-const history = (): fc.Arbitrary<GitCommit[]> =>
+const history = (): fc.Arbitrary<GraphCommit[]> =>
   fc
     .integer({ min: 1, max: 30 })
     .chain((size) =>
@@ -115,14 +113,11 @@ const history = (): fc.Arbitrary<GitCommit[]> =>
       ),
     );
 
-const mergesNext = (merge: GitCommit | undefined, next: GitCommit | undefined) =>
-  !!merge && !!next && merge.parents.slice(1).includes(next.hash);
-
-const hashOf = (n: GraphNode) => ("hash" in n.commit ? n.commit.hash : "WIP");
+const hashOf = (n: GraphNode) => (isWip(n.commit) ? "WIP" : n.commit.hash);
 
 const arrivals = (n: GraphNode) => [n.position, ...n.forks];
 
-const shape = (nodes: GraphNode[]) =>
+const shape = (nodes: readonly GraphNode[]) =>
   nodes.map((n) => ({
     hash: hashOf(n),
     position: n.position,

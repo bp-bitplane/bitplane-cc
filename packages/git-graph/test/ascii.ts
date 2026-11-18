@@ -1,11 +1,11 @@
-import type { Graph, GraphNode } from "../src/createGraphNodes";
+import { type GraphNode, isWip } from "../src/createGraph";
 
 /**
  * One line per node, one column per rail entering the row from above:
  * `*` commit, `|` rail passing by, `┘`/`└` rail ending in the commit,
  * `┐` rail the commit opens to the right, `┤`/`├` merge into a rail already there.
  */
-export const toAscii = (graph: Graph): string =>
+export const toAscii = (graph: { nodes: readonly GraphNode[] }): string =>
   graph.nodes.map((n) => `${row(n)}  ${label(n)}`.trimEnd()).join("\n");
 
 const row = (n: GraphNode): string => {
@@ -24,7 +24,7 @@ const row = (n: GraphNode): string => {
   return [...chars, ...opened.map(() => "┐")].join("");
 };
 
-const label = (n: GraphNode): string => ("hash" in n.commit ? n.commit.hash : "WIP");
+const label = (n: GraphNode): string => (isWip(n.commit) ? "WIP" : n.commit.hash);
 
 /** Strips the common indentation so expected diagrams can be indented with the test. */
 export const diagram = (strings: TemplateStringsArray): string => {

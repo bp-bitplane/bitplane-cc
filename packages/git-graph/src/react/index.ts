@@ -1,2 +1,2 @@
 export { COLOR_COUNT, getColor } from "./getColor";
-export { HEIGHT, renderEmptyRails, renderRails } from "./renderRails";
+export { HEIGHT, type RailRow, renderEmptyRails, renderRails } from "./renderRails";

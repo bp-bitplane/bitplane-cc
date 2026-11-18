@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
-import type { GraphNode } from "../createGraphNodes";
+import type { GraphNode } from "../createGraph";
 import { getColor } from "./getColor";
+
+export type RailRow = Pick<GraphNode, "position" | "rails" | "forks" | "merges">;
 
 const WIDTH = 16;
 export const HEIGHT = 26;
 const CENTER = 0.5;
 
-export const renderRails = (n: GraphNode) => {
+export const renderRails = (n: RailRow) => {
   const width = n.rails.length + 1 + n.merges.length;
 
   const absoluteCoords = (x: number, y: number): [number, number] => [
@@ -65,7 +67,7 @@ export const renderRails = (n: GraphNode) => {
   );
 };
 
-export const renderEmptyRails = (node: GraphNode, height: number) => {
+export const renderEmptyRails = (node: RailRow, height: number) => {
   const absoluteCoords = (x: number, y: number): [number, number] => [
     WIDTH / 2 + x * WIDTH,
     y * height,

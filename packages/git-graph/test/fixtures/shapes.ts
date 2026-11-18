@@ -1,4 +1,4 @@
-import type { GitCommit, GitIndex } from "../../src/git";
+import type { GraphCommit, GraphOptions } from "../../src/createGraph";
 import { commit as c } from "../layout";
 
 export const SHAPES = {
@@ -33,11 +33,6 @@ export const SHAPES = {
     c("b", []),
   ],
   wip: [c("1", ["2"]), c("2", ["3"]), c("3", [])],
-} satisfies Record<string, GitCommit[]>;
+} satisfies Record<string, GraphCommit[]>;
 
-export const WIP: GitIndex = {
-  parents: ["2"],
-  tracked: [{ path: "a", mode: "M" }],
-  untracked: [],
-  branch: undefined,
-};
+export const WIP: GraphOptions["wip"] = { parents: ["2"] };

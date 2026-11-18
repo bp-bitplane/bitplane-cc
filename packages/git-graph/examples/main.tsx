@@ -1,6 +1,6 @@
 import { StrictMode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { Graph } from "../src/createGraphNodes";
+import { type GraphNode, isWip } from "../src/createGraph";
 import { HEIGHT, renderRails } from "../src/react";
 import "../src/react/git-graph.css";
 import { parseLog } from "../test/fixtures/repos/parse";
@@ -14,11 +14,11 @@ const repoLogs = import.meta.glob<string>("../test/fixtures/repos/*.log", {
   eager: true,
 });
 
-const EXAMPLES: Record<string, () => Graph> = {
+const EXAMPLES: Record<string, () => { nodes: readonly GraphNode[] }> = {
   ...Object.fromEntries(
     Object.entries(SHAPES).map(([name, commits]) => [
       name,
-      () => layout(commits, name === "wip" ? { index: WIP } : {}),
+      () => layout(commits, name === "wip" ? { wip: WIP } : {}),
     ]),
   ),
   ...Object.fromEntries(
@@ -44,7 +44,7 @@ const App = () => {
       </nav>
       <ol className="graph">
         {graph.nodes.map((node) => {
-          const label = "hash" in node.commit ? node.commit.hash : "WIP";
+          const label = isWip(node.commit) ? "WIP" : node.commit.hash;
           return (
             <li key={label} style={{ height: HEIGHT }}>
               {renderRails(node)}

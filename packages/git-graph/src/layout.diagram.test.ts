@@ -94,7 +94,7 @@ describe("layout diagrams", () => {
   });
 
   test("the WIP node sits on top of HEAD's rail", () => {
-    expect(toAscii(layout(SHAPES.wip, { index: WIP }))).toBe(diagram`
+    expect(toAscii(layout(SHAPES.wip, { wip: WIP }))).toBe(diagram`
       *  WIP
       |*  1
       *┘  2

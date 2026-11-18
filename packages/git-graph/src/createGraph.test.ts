@@ -1,14 +1,9 @@
+import { diagram, toAscii } from "../test/ascii";
 import { commit, layout } from "../test/layout";
-import { type GraphNode, withPrev } from "./createGraphNodes";
-import type { GitCommit, GitIndex } from "./git";
+import { createGraph, type GraphCommit, type GraphNode, isWip } from "./createGraph";
 
 test("linear", () => {
-  const commits = [
-    commit("1", ["2"], "1"),
-    commit("2", ["3"], "2"),
-    commit("3", ["4"], "3"),
-    commit("4", [], "4"),
-  ];
+  const commits = [commit("1", ["2"]), commit("2", ["3"]), commit("3", ["4"]), commit("4", [])];
 
   const { nodes } = layout(commits);
 
@@ -36,12 +31,12 @@ test("linear", () => {
 });
 
 test("fork", () => {
-  const commits: GitCommit[] = [
-    commit("1", ["2a"], "1"),
-    commit("2a", ["3"], "2a"),
-    commit("2b", ["3"], "2b"),
-    commit("3", ["4"], "3"),
-    commit("4", [], "4"),
+  const commits: GraphCommit[] = [
+    commit("1", ["2a"]),
+    commit("2a", ["3"]),
+    commit("2b", ["3"]),
+    commit("3", ["4"]),
+    commit("4", []),
   ];
 
   const { nodes } = layout(commits);
@@ -75,12 +70,12 @@ test("fork", () => {
 });
 
 test("merge", () => {
-  const commits: GitCommit[] = [
-    commit("1", ["2a", "2b"], "1"),
-    commit("2a", ["3"], "2a"),
-    commit("2b", ["3"], "2b"),
-    commit("3", ["4"], "3"),
-    commit("4", [], "4"),
+  const commits: GraphCommit[] = [
+    commit("1", ["2a", "2b"]),
+    commit("2a", ["3"]),
+    commit("2b", ["3"]),
+    commit("3", ["4"]),
+    commit("4", []),
   ];
 
   const { nodes } = layout(commits);
@@ -114,13 +109,13 @@ test("merge", () => {
 });
 
 test("merge2", () => {
-  const commits: GitCommit[] = [
-    commit("1", ["2a", "2b"], "1"),
-    commit("2c", ["4"], "2c"),
-    commit("2a", ["3"], "2a"),
-    commit("2b", ["3"], "2b"),
-    commit("3", ["4"], "3"),
-    commit("4", [], "4"),
+  const commits: GraphCommit[] = [
+    commit("1", ["2a", "2b"]),
+    commit("2c", ["4"]),
+    commit("2a", ["3"]),
+    commit("2b", ["3"]),
+    commit("3", ["4"]),
+    commit("4", []),
   ];
 
   const { nodes } = layout(commits);
@@ -166,13 +161,13 @@ test("merge2", () => {
 });
 
 test("weird merge, do not create extra rail while merging", () => {
-  const commits: GitCommit[] = [
-    commit("a1", ["a2"], "a1"),
-    commit("b1", ["b2"], "b1"),
-    commit("a2", ["a3", "b2"], "a2"),
-    commit("b2", ["b3"], "b2"),
-    commit("a3", [], "a3"),
-    commit("b3", [], "b3"),
+  const commits: GraphCommit[] = [
+    commit("a1", ["a2"]),
+    commit("b1", ["b2"]),
+    commit("a2", ["a3", "b2"]),
+    commit("b2", ["b3"]),
+    commit("a3", []),
+    commit("b3", []),
   ];
 
   const { nodes } = layout(commits);
@@ -217,22 +212,17 @@ test("weird merge, do not create extra rail while merging", () => {
   expect(b3.merges).toEqual([]);
 });
 
-test("index", () => {
-  const index: GitIndex = {
-    parents: ["2"],
-    tracked: [{} as never],
-    untracked: [],
-    branch: undefined,
-  };
+test("wip", () => {
+  const wip = { parents: ["2"] };
 
-  const commits: GitCommit[] = [
-    commit("1", ["2"], "1"),
-    commit("2", ["3"], "2"),
-    commit("3", ["4"], "3"),
-    commit("4", [], "4"),
+  const commits: GraphCommit[] = [
+    commit("1", ["2"]),
+    commit("2", ["3"]),
+    commit("3", ["4"]),
+    commit("4", []),
   ];
 
-  const { nodes } = layout(commits, { index });
+  const { nodes } = layout(commits, { wip });
 
   const [i, n1, n2, n3, n4] = nodes as [GraphNode, GraphNode, GraphNode, GraphNode, GraphNode];
 
@@ -263,7 +253,7 @@ test("index", () => {
 });
 
 test("single", () => {
-  const commits: GitCommit[] = [commit("1", [], "1")];
+  const commits: GraphCommit[] = [commit("1", [])];
 
   const { nodes } = layout(commits);
 
@@ -275,99 +265,120 @@ test("single", () => {
   expect(n1.merges).toMatchObject([]);
 });
 
-describe("withPrev", () => {
-  test("multiple values", () => {
-    const input = [1, 2, 3, 4, 5];
-
-    const result = [...withPrev(input)];
-
-    expect(result).toEqual([
-      [1, 2],
-      [2, 3],
-      [3, 4],
-      [4, 5],
-      [5, undefined],
-    ]);
-  });
-
-  test("single value", () => {
-    const input = [1];
-
-    const result = [...withPrev(input)];
-
-    expect(result).toEqual([[1, undefined]]);
-  });
-
-  test("empty", () => {
-    const input: never[] = [];
-
-    const result = [...withPrev(input)];
-
-    expect(result).toEqual([]);
-  });
-});
-
 describe("hidden", () => {
   test("side branch", () => {
-    const commits: GitCommit[] = [
-      commit("1", ["2a"], "1"),
-      commit("2a", ["3"], "2a"),
-      commit("2b", ["3"], "2b"),
-      commit("3", ["4"], "3"),
-      commit("4", [], "4"),
+    const commits: GraphCommit[] = [
+      commit("1", ["2a"]),
+      commit("2a", ["3"]),
+      commit("2b", ["3"]),
+      commit("3", ["4"]),
+      commit("4", []),
     ];
 
     const { nodes } = layout(commits, { visibleTips: new Set(["2b"]) });
 
-    const hashes = nodes.map((n) => (n.commit as GitCommit).hash);
+    const hashes = nodes.map((n) => (n.commit as GraphCommit).hash);
 
     expect(hashes).toEqual(["2b", "3", "4"]);
   });
 
   test("side branch - hidden first", () => {
-    const commits: GitCommit[] = [
-      commit("1", ["2a"], "1"),
-      commit("2a", ["3"], "2a"),
-      commit("2b", ["3"], "2b"),
-      commit("3", ["4"], "3"),
-      commit("4", [], "4"),
+    const commits: GraphCommit[] = [
+      commit("1", ["2a"]),
+      commit("2a", ["3"]),
+      commit("2b", ["3"]),
+      commit("3", ["4"]),
+      commit("4", []),
     ];
 
     const { nodes } = layout(commits, { visibleTips: new Set(["3"]) });
 
-    const hashes = nodes.map((n) => (n.commit as GitCommit).hash);
+    const hashes = nodes.map((n) => (n.commit as GraphCommit).hash);
 
     expect(hashes).toEqual(["3", "4"]);
   });
 
   test("after hidden", () => {
-    const commits: GitCommit[] = [
-      commit("1", ["2"], "1"),
-      commit("2", ["3"], "2"),
-      commit("3", ["4"], "3"),
-      commit("4", [], "4"),
+    const commits: GraphCommit[] = [
+      commit("1", ["2"]),
+      commit("2", ["3"]),
+      commit("3", ["4"]),
+      commit("4", []),
     ];
 
     const { nodes } = layout(commits, { visibleTips: new Set(["2"]) });
 
-    const hashes = nodes.map((n) => (n.commit as GitCommit).hash);
+    const hashes = nodes.map((n) => (n.commit as GraphCommit).hash);
 
     expect(hashes).toEqual(["2", "3", "4"]);
   });
 
   test("merge", () => {
-    const commits: GitCommit[] = [
-      commit("1", ["2a", "2b"], "1"),
-      commit("2a", ["3"], "2a"),
-      commit("2b", ["3"], "2b"),
-      commit("3", ["4"], "3"),
-      commit("4", [], "4"),
+    const commits: GraphCommit[] = [
+      commit("1", ["2a", "2b"]),
+      commit("2a", ["3"]),
+      commit("2b", ["3"]),
+      commit("3", ["4"]),
+      commit("4", []),
     ];
 
     const { nodes } = layout(commits, { visibleTips: new Set(["1"]) });
 
-    const hashes = nodes.map((n) => (n.commit as GitCommit).hash);
+    const hashes = nodes.map((n) => (n.commit as GraphCommit).hash);
 
     expect(hashes).toEqual(["1", "2a", "2b", "3", "4"]);
   });
 });
+
+describe("options", () => {
+  const withStash = [commit("s", ["2", "i"]), commit("1", ["2"]), commit("2", [])];
+
+  test("lays out every commit by default", () => {
+    const commits = [
+      commit("1", ["2a"]),
+      commit("2b", ["3"]),
+      commit("2a", ["3"]),
+      commit("3", []),
+    ];
+
+    expect(layout(commits).nodes).toHaveLength(4);
+  });
+
+  test("an empty visibleTips hides every commit", () => {
+    expect(layout([commit("1", ["2"]), commit("2", [])], { visibleTips: new Set() }).nodes).toEqual(
+      [],
+    );
+  });
+
+  test("ignoreMergeParentsOf draws a stash on its base without a rail to its index commit", () => {
+    const graph = layout(withStash, { ignoreMergeParentsOf: new Set(["s"]) });
+
+    expect(toAscii(graph)).toBe(diagram`
+      *  s
+      |*  1
+      *┘  2
+    `);
+    expect(graph.rails.rails).toEqual([]);
+  });
+
+  test("without ignoreMergeParentsOf a stash keeps a rail open to its index commit", () => {
+    expect(layout(withStash).rails.rails.map((r) => r.next)).toEqual(["i"]);
+  });
+});
+
+describe("builder", () => {
+  test("holds the last appended commit back until the next append or end", () => {
+    const graph = createGraph();
+
+    graph.append([commit("1", ["2"]), commit("2", ["3"])]);
+    expect(graph.nodes.map(hashOf)).toEqual(["1"]);
+
+    graph.append([commit("3", [])]);
+    expect(graph.nodes.map(hashOf)).toEqual(["1", "2"]);
+
+    graph.end();
+    expect(graph.nodes.map(hashOf)).toEqual(["1", "2", "3"]);
+  });
+});
+
+const hashOf = (n: GraphNode) => (isWip(n.commit) ? "WIP" : n.commit.hash);
