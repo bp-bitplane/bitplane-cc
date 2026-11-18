@@ -10,7 +10,8 @@
   },
   "scripts": {
     "typecheck": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "examples": "vite --config examples/vite.config.ts"
   },
   "peerDependencies": {
     "react": "^19.2.0"
@@ -18,9 +19,13 @@
   "devDependencies": {
     "@types/node": "24.19.1",
     "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.1",
+    "@vitejs/plugin-react": "5.2.0",
     "fast-check": "4.10.2",
     "react": "19.2.8",
+    "react-dom": "19.2.8",
     "typescript": "5.9.3",
+    "vite": "7.3.7",
     "vitest": "4.1.11"
   }
 }
