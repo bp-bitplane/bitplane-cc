@@ -57,7 +57,7 @@ export const renderRails = (n: GraphNode) => {
 
   const s = 3.5;
   return (
-    <svg width={(width + 1) * WIDTH} height={HEIGHT} className="!ml-3" aria-hidden>
+    <svg width={(width + 1) * WIDTH} height={HEIGHT} className="git-graph-rails" aria-hidden>
       {rails}
       {/* Commit circle */}
       <rect x={cx - s / 2} y={cy - s / 2} width={s} height={s} className={color} />
@@ -106,7 +106,7 @@ export const renderEmptyRails = (node: GraphNode, height: number) => {
   }
 
   return (
-    <svg width={(width + 1) * WIDTH} height={height} className="!ml-3" aria-hidden>
+    <svg width={(width + 1) * WIDTH} height={height} className="git-graph-rails" aria-hidden>
       {rails}
     </svg>
   );

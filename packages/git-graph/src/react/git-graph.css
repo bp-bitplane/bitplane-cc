@@ -1,0 +1,52 @@
+:where(:root) {
+  --git-graph-color-0: oklch(51.1% 0.262 276.966);
+  --git-graph-color-1: oklch(59.2% 0.249 0.584);
+  --git-graph-color-2: oklch(59.6% 0.145 163.225);
+  --git-graph-color-3: oklch(66.6% 0.179 58.318);
+  --git-graph-color-4: oklch(58.8% 0.158 241.966);
+  --git-graph-color-5: oklch(68.1% 0.162 75.834);
+  --git-graph-color-6: oklch(57.7% 0.245 27.325);
+}
+
+.git-graph-color-0 {
+  --git-graph-rail-color: var(--git-graph-color-0);
+}
+.git-graph-color-1 {
+  --git-graph-rail-color: var(--git-graph-color-1);
+}
+.git-graph-color-2 {
+  --git-graph-rail-color: var(--git-graph-color-2);
+}
+.git-graph-color-3 {
+  --git-graph-rail-color: var(--git-graph-color-3);
+}
+.git-graph-color-4 {
+  --git-graph-rail-color: var(--git-graph-color-4);
+}
+.git-graph-color-5 {
+  --git-graph-rail-color: var(--git-graph-color-5);
+}
+.git-graph-color-6 {
+  --git-graph-rail-color: var(--git-graph-color-6);
+}
+
+.git-graph-rails {
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  fill: transparent;
+  position: relative;
+}
+
+.git-graph-rails rect {
+  fill: var(--git-graph-rail-color);
+  stroke: var(--git-graph-rail-color);
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+}
+
+.git-graph-rails path {
+  stroke: var(--git-graph-rail-color);
+  stroke-width: 2px;
+  filter: drop-shadow(2px 2px 2px rgb(0 0 0 / 0.4));
+}

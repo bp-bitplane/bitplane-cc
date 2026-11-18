@@ -1,4 +1,4 @@
 import type { RailId } from "../Rails";
 
-const colors = ["indigo", "pink", "emerald", "amber", "sky", "yellow", "red"];
-export const getColor = (x: RailId) => colors[x % colors.length]!;
+export const COLOR_COUNT = 7;
+export const getColor = (x: RailId) => `git-graph-color-${x % COLOR_COUNT}`;

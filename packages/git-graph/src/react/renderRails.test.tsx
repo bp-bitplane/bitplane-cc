@@ -31,7 +31,7 @@ test("renderEmptyRails - merge commit", () => {
     (e: ReactElement<{ className: string }>) => e.props.className,
   );
 
-  expect(colors).toEqual(["indigo", "pink", "amber"]);
+  expect(colors).toEqual(["git-graph-color-0", "git-graph-color-1", "git-graph-color-3"]);
 });
 
 test("renderEmptyRails - merge commit 2", () => {
@@ -62,7 +62,12 @@ test("renderEmptyRails - merge commit 2", () => {
     (e: ReactElement<{ className: string }>) => e.props.className,
   );
 
-  expect(colors).toEqual(["indigo", "yellow", "red", "indigo"]);
+  expect(colors).toEqual([
+    "git-graph-color-0",
+    "git-graph-color-5",
+    "git-graph-color-6",
+    "git-graph-color-0",
+  ]);
 });
 
 test("renderEmptyRails - index", () => {
@@ -90,5 +95,5 @@ test("renderEmptyRails - index", () => {
     (e: ReactElement<{ className: string }>) => e.props.className,
   );
 
-  expect(colors).toEqual(["indigo"]);
+  expect(colors).toEqual(["git-graph-color-0"]);
 });
