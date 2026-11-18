@@ -23,7 +23,7 @@ pub mod sessions;
 use std::sync::Arc;
 
 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
-use tauri::{Manager, RunEvent, Runtime};
+use tauri::{Manager, RunEvent, Runtime, Url};
 use tauri_plugin_window_state::StateFlags;
 use tauri_specta::Event;
 
@@ -45,6 +45,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(navigation_guard())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::SIZE | StateFlags::POSITION)
@@ -143,6 +145,24 @@ pub fn run() {
                 app.creates.interrupt_all();
             }
         });
+}
+
+/// Keep the window on cc's own page: terminal output is untrusted, and its
+/// links open in the browser instead.
+fn navigation_guard<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("navigation-guard")
+        .on_navigation(|webview, url| {
+            let config = webview.app_handle().config();
+            let dev_url = config.build.dev_url.as_ref().filter(|_| cfg!(dev));
+            is_app_page(url, dev_url)
+        })
+        .build()
+}
+
+fn is_app_page(url: &Url, dev_url: Option<&Url>) -> bool {
+    url.scheme() == "tauri"
+        || url.host_str() == Some("tauri.localhost")
+        || dev_url.is_some_and(|dev| dev.origin() == url.origin())
 }
 
 /// Tauri puts the sidecar next to cc's own executable, in a bundle and in
