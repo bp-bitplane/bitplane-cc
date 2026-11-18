@@ -22,9 +22,19 @@ export default defineConfig({
   },
   build: { target: "safari18", sourcemap: true },
   test: {
-    environment: "jsdom",
-    globals: true,
-    setupFiles: ["src/test/setup.ts"],
-    css: { modules: { classNameStrategy: "non-scoped" } },
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "app",
+          include: ["src/**/*.test.{ts,tsx}"],
+          environment: "jsdom",
+          globals: true,
+          setupFiles: ["src/test/setup.ts"],
+          css: { modules: { classNameStrategy: "non-scoped" } },
+        },
+      },
+      "packages/*",
+    ],
   },
 });

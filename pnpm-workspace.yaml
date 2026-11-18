@@ -1,3 +1,4 @@
-# Settings only: this is a single package, not a workspace.
+packages:
+  - packages/*
 allowBuilds:
   esbuild: true

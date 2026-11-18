@@ -13,7 +13,7 @@
     "sidecar": "scripts/build-sidecar.sh",
     "vite:dev": "vite",
     "vite:build": "tsc && vite build",
-    "typecheck": "tsc",
+    "typecheck": "tsc && pnpm --filter @bitplane/git-graph typecheck",
     "lint": "pnpm sidecar && biome check . && scripts/build-env.sh cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
     "format": "biome format --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "format:check": "biome format . && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
