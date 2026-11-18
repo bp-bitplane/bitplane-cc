@@ -24,12 +24,14 @@ specta-typescript = "=0.0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 notify-debouncer-mini = "0.7"
+similar = "2"
+base64 = "0.22"
 tokio = { version = "1", features = ["process", "time", "sync", "macros", "rt-multi-thread", "io-util"] }
 libc = "0.2"
 toml = "1"
-bitplane-protocol = { git = "https://github.com/bp-bitplane/bitplane-protocol", rev = "d0a2b660efca22f13cc6dbf73342786bff41b701" }
+bitplane-protocol = { git = "https://github.com/bp-bitplane/bitplane-protocol", rev = "1d74f71962cffcc7e9b2e76d9db643148a8d602e" }
 # Also the rev scripts/build-sidecar.sh bundles, so cc's client and its daemon match.
-bitplane-sessiond = { git = "https://github.com/bp-bitplane/bitplane-sessiond", rev = "df911de06be6f429e2f603f96494a34874f43aa2" }
+bitplane-sessiond = { git = "https://github.com/bp-bitplane/bitplane-sessiond", rev = "2daa057aeb048191a34c655694f221e841da1361" }
 
 [dev-dependencies]
 tempfile = "3"

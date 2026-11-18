@@ -39,9 +39,9 @@ export const commands = {
 	planeOpenInVscode: (planeId: string) => __TAURI_INVOKE<null>("plane_open_in_vscode", { planeId }),
 	planeSourceControl: (planeId: string) => __TAURI_INVOKE<Repo[]>("plane_source_control", { planeId }),
 	/**
-	 *  Keep what `target` shows current, through `source_control_changed` and
-	 *  `file_tabs_changed`; `None` stops. Sync, so calls apply in the order the
-	 *  frontend made them.
+	 *  Keep what `target` shows in this window current, through
+	 *  `source_control_changed` and `file_tabs_changed`; `None` stops. Sync, so
+	 *  calls apply in the order the frontend made them.
 	 */
 	planeGitWatch: (target: {
 	planeId: string,
@@ -52,8 +52,9 @@ export const commands = {
 	/**  One folder of a plane for Files; `path` is relative to the plane root. */
 	planeListDir: (planeId: string, path: string) => __TAURI_INVOKE<FileEntry[]>("plane_list_dir", { planeId, path }),
 	/**
-	 *  Report changes in `dirs` of `plane_id` through `files_changed`; `None`
-	 *  stops. Sync, so calls apply in the order the frontend made them.
+	 *  Report changes in `dirs` of `plane_id` to this window through
+	 *  `files_changed`; `None` stops. Sync, so calls apply in the order the
+	 *  frontend made them.
 	 */
 	planeFilesWatch: (planeId: string | null, dirs: string[]) => __TAURI_INVOKE<void>("plane_files_watch", { planeId, dirs }),
 	planeOpenFile: (planeId: string, path: string, line: number | null) => __TAURI_INVOKE<null>("plane_open_file", { planeId, path, line }),
@@ -275,7 +276,7 @@ export type FilesEvent = {
 	dirs: string[],
 };
 
-/**  What the frontend has on screen that git changes can make stale. */
+/**  What a window has on screen that git changes can make stale. */
 export type GitTarget = {
 	planeId: string,
 	sourceControl: boolean,

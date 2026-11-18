@@ -321,12 +321,14 @@ dependencies = [
 name = "bitplane-cc"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bitplane-protocol",
  "bitplane-sessiond",
  "libc",
  "notify-debouncer-mini",
  "serde",
  "serde_json",
+ "similar",
  "specta",
  "specta-typescript",
  "tauri",
@@ -343,7 +345,7 @@ dependencies = [
 [[package]]
 name = "bitplane-protocol"
 version = "0.1.0"
-source = "git+https://github.com/bp-bitplane/bitplane-protocol?rev=d0a2b660efca22f13cc6dbf73342786bff41b701#d0a2b660efca22f13cc6dbf73342786bff41b701"
+source = "git+https://github.com/bp-bitplane/bitplane-protocol?rev=1d74f71962cffcc7e9b2e76d9db643148a8d602e#1d74f71962cffcc7e9b2e76d9db643148a8d602e"
 dependencies = [
  "serde",
  "serde_json",
@@ -352,12 +354,14 @@ dependencies = [
 [[package]]
 name = "bitplane-sessiond"
 version = "0.1.0"
-source = "git+https://github.com/bp-bitplane/bitplane-sessiond?rev=df911de06be6f429e2f603f96494a34874f43aa2#df911de06be6f429e2f603f96494a34874f43aa2"
+source = "git+https://github.com/bp-bitplane/bitplane-sessiond?rev=2daa057aeb048191a34c655694f221e841da1361#2daa057aeb048191a34c655694f221e841da1361"
 dependencies = [
+ "base64 0.22.1",
  "bitplane-protocol",
  "clap",
  "libc",
  "libghostty-vt",
+ "notify-debouncer-mini",
  "portable-pty",
  "rustix",
  "serde",
@@ -3586,6 +3590,12 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "siphasher"

@@ -1,20 +1,17 @@
-//! What a File tab shows: one file's diff, both sides of it, or its plain
-//! contents, all read through the git CLI (ADR 0006).
-
-use std::path::{Component, Path, PathBuf};
+//! What a File tab shows, computed from two blobs (ADR 0009): a unified
+//! patch, or why there is none. Pure: the blobs come from the daemon.
 
 use serde::{Deserialize, Serialize};
+use similar::TextDiff;
 use specta::Type;
-
-use crate::env::EnvMap;
-use crate::files;
-use crate::git_cli::Git;
 
 /// Past this on either side, a file is a placeholder instead of a diff.
 pub const MAX_FILE_BYTES: u64 = 1_000_000;
 
 /// Git's own heuristic: a NUL in the first 8000 bytes means binary.
 const BINARY_SNIFF_BYTES: usize = 8000;
+
+const CONTEXT_LINES: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -62,592 +59,247 @@ pub enum FileText {
     TooLarge { size: u64 },
 }
 
-pub async fn file_diff(
-    root: &Path,
-    relative: &str,
-    mode: DiffMode,
-    force: bool,
-    env: &EnvMap,
-) -> Result<FileDiff, String> {
-    let target = locate(root, relative)?;
-    let Some(repo) = &target.repo else {
-        return plain(&target, relative);
-    };
-    let git = Git::find(env).ok_or(NO_GIT)?;
-    let (dir, path) = (repo.dir.as_path(), repo.path.as_str());
-    if git.succeeds(dir, &["check-ignore", "-q", "--", path]).await {
-        return plain(&target, relative);
-    }
-    if !is_tracked(&git, dir, path).await? {
-        return untracked_diff(&git, &target, repo, mode, force, relative).await;
-    }
-    let base = mode.diff_args();
-    let from = find_rename(&git, dir, base, path).await?;
-    let old_path = from.as_deref().unwrap_or(path);
-    let old_size = blob_size(&git, dir, &mode.old_spec(old_path)).await;
-    let new_size = match mode {
-        DiffMode::Index => blob_size(&git, dir, &format!(":{path}")).await,
-        DiffMode::Worktree | DiffMode::File => disk_size(&target.path).unwrap_or(0),
-    };
-    let size = old_size.max(new_size);
-    if size > MAX_FILE_BYTES && !force {
-        return Ok(FileDiff::TooLarge { size });
-    }
-    let mut pathspec = vec!["--", path];
-    pathspec.extend(from.as_deref());
-    let numstat = git
-        .run(dir, &[base, &["--numstat", "-M"], &pathspec].concat(), &[])
-        .await?;
-    if numstat.is_empty() {
-        return Ok(match mode {
-            DiffMode::File => FileDiff::Plain,
-            DiffMode::Index | DiffMode::Worktree => FileDiff::None,
-        });
-    }
-    if is_binary(&numstat) {
-        return Ok(FileDiff::Binary { old_size, new_size });
-    }
-    let patch = git
-        .run(dir, &[base, PATCH_ARGS, &["-M"], &pathspec].concat(), &[])
-        .await?;
-    Ok(FileDiff::Diff {
-        patch: String::from_utf8_lossy(&patch).into_owned(),
-    })
+/// One side of a diff as read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Side {
+    /// Not in that revision, or not on disk.
+    Missing,
+    /// Read without its bytes, past the limit asked for.
+    TooLarge {
+        size: u64,
+    },
+    Bytes(Vec<u8>),
 }
 
-/// Both sides of a diff, so unchanged context can be expanded; a side that
-/// doesn't exist is empty.
-pub async fn file_contents(
-    root: &Path,
-    relative: &str,
-    mode: DiffMode,
-    env: &EnvMap,
-) -> Result<FileContents, String> {
-    let target = locate(root, relative)?;
-    let disk = || {
-        std::fs::read(&target.path)
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-            .unwrap_or_default()
-    };
-    let Some(repo) = &target.repo else {
-        return Ok(FileContents {
-            old: String::new(),
-            new: disk(),
-        });
-    };
-    let git = Git::find(env).ok_or(NO_GIT)?;
-    let (dir, path) = (repo.dir.as_path(), repo.path.as_str());
-    let from = find_rename(&git, dir, mode.diff_args(), path).await?;
-    let old = show(&git, dir, &mode.old_spec(from.as_deref().unwrap_or(path))).await;
-    let new = match mode {
-        DiffMode::Index => show(&git, dir, &format!(":{path}")).await,
-        DiffMode::Worktree | DiffMode::File => disk(),
-    };
-    Ok(FileContents { old, new })
-}
-
-/// A file's contents for a File tab with no diff to show.
-pub fn read_file(root: &Path, relative: &str) -> Result<FileText, String> {
-    let path = files::resolve(root, relative)?;
-    let size = disk_size(&path).ok_or_else(|| format!("{relative} isn't a file"))?;
-    if size > MAX_FILE_BYTES {
-        return Ok(FileText::TooLarge { size });
-    }
-    let bytes = std::fs::read(&path).map_err(|e| format!("couldn't read {relative}: {e}"))?;
-    if looks_binary(&bytes) {
-        return Ok(FileText::Binary { size });
-    }
-    Ok(FileText::Text {
-        contents: String::from_utf8_lossy(&bytes).into_owned(),
-    })
-}
-
-const NO_GIT: &str = "git isn't on your PATH";
-
-/// Fixed prefixes, whatever the user's config says, so the patch parses.
-const PATCH_ARGS: &[&str] = &[
-    "--no-color",
-    "--no-ext-diff",
-    "--src-prefix=a/",
-    "--dst-prefix=b/",
-];
-
-impl DiffMode {
-    fn diff_args(self) -> &'static [&'static str] {
+impl Side {
+    pub fn size(&self) -> u64 {
         match self {
-            DiffMode::Index => &["diff", "--cached"],
-            DiffMode::Worktree => &["diff"],
-            DiffMode::File => &["diff", "HEAD"],
+            Side::Missing => 0,
+            Side::TooLarge { size } => *size,
+            Side::Bytes(bytes) => bytes.len() as u64,
         }
     }
 
-    fn old_spec(self, path: &str) -> String {
+    /// Lossy text; empty when missing or not read.
+    pub fn text(&self) -> String {
         match self {
-            DiffMode::Index | DiffMode::File => format!("HEAD:{path}"),
-            DiffMode::Worktree => format!(":{path}"),
+            Side::Bytes(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+            Side::Missing | Side::TooLarge { .. } => String::new(),
         }
     }
 }
 
-struct Target {
-    /// The file on disk; it may not exist when it was deleted.
-    path: PathBuf,
-    repo: Option<RepoPath>,
-}
-
-struct RepoPath {
-    dir: PathBuf,
-    /// Relative to `dir`, `/`-separated, as git names it.
-    path: String,
-}
-
-/// Only the folder must exist: a deleted file still has a diff.
-fn locate(root: &Path, relative: &str) -> Result<Target, String> {
-    let relative_path = Path::new(relative);
-    let name = match relative_path.components().next_back() {
-        Some(Component::Normal(name)) => name,
-        _ => return Err(format!("{relative} isn't a path inside the plane")),
+/// `old` at `old_path` against `new` at `new_path`, both relative to their
+/// repo; `unchanged` is what equal sides show.
+pub fn diff(
+    old_path: &str,
+    new_path: &str,
+    old: &Side,
+    new: &Side,
+    unchanged: FileDiff,
+) -> FileDiff {
+    if matches!(old, Side::TooLarge { .. }) || matches!(new, Side::TooLarge { .. }) {
+        return FileDiff::TooLarge {
+            size: old.size().max(new.size()),
+        };
+    }
+    if old == new {
+        return unchanged;
+    }
+    let bytes = |side: &Side| match side {
+        Side::Bytes(bytes) => looks_binary(bytes),
+        Side::Missing | Side::TooLarge { .. } => false,
     };
-    let parent = relative_path.parent().unwrap_or(Path::new(""));
-    let dir = files::resolve(root, &parent.to_string_lossy())?;
-    let path = dir.join(name);
-    let repo = if files::in_git_dir(relative) {
-        None
-    } else {
-        files::containing_repo(root, &dir).and_then(|repo| {
-            let inside = path.strip_prefix(&repo).ok()?.to_str()?.to_string();
-            Some(RepoPath {
-                dir: repo,
-                path: inside,
-            })
-        })
-    };
-    Ok(Target { path, repo })
-}
-
-fn plain(target: &Target, relative: &str) -> Result<FileDiff, String> {
-    match disk_size(&target.path) {
-        Some(_) => Ok(FileDiff::Plain),
-        None if target.path.exists() => Err(format!("{relative} isn't a file")),
-        None => Err(format!("{relative} no longer exists")),
+    if bytes(old) || bytes(new) {
+        return FileDiff::Binary {
+            old_size: old.size(),
+            new_size: new.size(),
+        };
+    }
+    let old_text = (*old != Side::Missing).then(|| old.text());
+    let new_text = (*new != Side::Missing).then(|| new.text());
+    FileDiff::Diff {
+        patch: patch(old_path, new_path, old_text.as_deref(), new_text.as_deref()),
     }
 }
 
-/// In the index or in HEAD; a staged deletion is only in HEAD.
-async fn is_tracked(git: &Git, dir: &Path, path: &str) -> Result<bool, String> {
-    let listed = git.run(dir, &["ls-files", "-z", "--", path], &[]).await?;
-    Ok(!listed.is_empty()
-        || git
-            .succeeds(dir, &["cat-file", "-e", &format!("HEAD:{path}")])
-            .await)
-}
-
-/// The whole file as added; there's nothing staged to show in `index` mode.
-async fn untracked_diff(
-    git: &Git,
-    target: &Target,
-    repo: &RepoPath,
-    mode: DiffMode,
-    force: bool,
-    relative: &str,
-) -> Result<FileDiff, String> {
-    if mode == DiffMode::Index {
-        return Ok(FileDiff::None);
-    }
-    let size = disk_size(&target.path).ok_or_else(|| format!("{relative} no longer exists"))?;
-    if size > MAX_FILE_BYTES && !force {
-        return Ok(FileDiff::TooLarge { size });
-    }
-    let (dir, path) = (repo.dir.as_path(), repo.path.as_str());
-    let pathspec = ["--", "/dev/null", path];
-    // `--no-index` exits 1 when the sides differ, which they always do here.
-    let numstat = git
-        .run(
-            dir,
-            &[&["diff", "--no-index", "--numstat"], &pathspec[..]].concat(),
-            &[1],
-        )
-        .await?;
-    if is_binary(&numstat) {
-        return Ok(FileDiff::Binary {
-            old_size: 0,
-            new_size: size,
-        });
-    }
-    let patch = git
-        .run(
-            dir,
-            &[&["diff", "--no-index"], PATCH_ARGS, &pathspec].concat(),
-            &[1],
-        )
-        .await?;
-    Ok(FileDiff::Diff {
-        patch: String::from_utf8_lossy(&patch).into_owned(),
-    })
-}
-
-/// Where `path` was renamed from. Git only pairs a rename when both paths
-/// are in the pathspec, so the whole repo's renames are listed to find it.
-async fn find_rename(
-    git: &Git,
-    dir: &Path,
-    base: &[&str],
-    path: &str,
-) -> Result<Option<String>, String> {
-    let listed = git
-        .run(dir, &[base, &["--name-status", "-M", "-z"]].concat(), &[])
-        .await?;
-    let listed = String::from_utf8_lossy(&listed);
-    let mut fields = listed.split('\0');
-    while let Some(status) = fields.next() {
-        if status.starts_with('R') || status.starts_with('C') {
-            let (Some(from), Some(to)) = (fields.next(), fields.next()) else {
-                break;
-            };
-            if status.starts_with('R') && to == path {
-                return Ok(Some(from.to_string()));
-            }
-        } else {
-            fields.next();
+/// A git-style unified patch; `None` is a side that doesn't exist.
+pub fn patch(old_path: &str, new_path: &str, old: Option<&str>, new: Option<&str>) -> String {
+    let mut out = format!("diff --git a/{old_path} b/{new_path}\n");
+    match (old, new) {
+        (None, Some(_)) => out.push_str("new file mode 100644\n"),
+        (Some(_), None) => out.push_str("deleted file mode 100644\n"),
+        _ if old_path != new_path => {
+            out.push_str(&format!("rename from {old_path}\nrename to {new_path}\n"));
         }
+        _ => {}
     }
-    Ok(None)
+    let (old_text, new_text) = (old.unwrap_or_default(), new.unwrap_or_default());
+    if old_text == new_text {
+        return out;
+    }
+    let old_name = old.map_or("/dev/null".into(), |_| format!("a/{old_path}"));
+    let new_name = new.map_or("/dev/null".into(), |_| format!("b/{new_path}"));
+    out.push_str(
+        &TextDiff::from_lines(old_text, new_text)
+            .unified_diff()
+            .context_radius(CONTEXT_LINES)
+            .header(&old_name, &new_name)
+            .to_string(),
+    );
+    out
 }
 
-/// `0` when the blob doesn't exist.
-async fn blob_size(git: &Git, dir: &Path, spec: &str) -> u64 {
-    git.run(dir, &["cat-file", "-s", spec], &[])
-        .await
-        .ok()
-        .and_then(|size| String::from_utf8_lossy(&size).trim().parse().ok())
-        .unwrap_or(0)
+/// What a File tab with no diff shows of a file read with
+/// [`MAX_FILE_BYTES`] as its limit.
+pub fn file_text(side: &Side) -> FileText {
+    match side {
+        Side::TooLarge { size } => FileText::TooLarge { size: *size },
+        Side::Bytes(bytes) if looks_binary(bytes) => FileText::Binary {
+            size: bytes.len() as u64,
+        },
+        side => FileText::Text {
+            contents: side.text(),
+        },
+    }
 }
 
-/// Empty when the blob doesn't exist.
-async fn show(git: &Git, dir: &Path, spec: &str) -> String {
-    git.run(dir, &["show", spec], &[])
-        .await
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        .unwrap_or_default()
-}
-
-fn disk_size(path: &Path) -> Option<u64> {
-    std::fs::metadata(path)
-        .ok()
-        .filter(|meta| meta.is_file())
-        .map(|meta| meta.len())
-}
-
-/// `--numstat` counts a binary file as `-\t-`.
-fn is_binary(numstat: &[u8]) -> bool {
-    numstat.starts_with(b"-\t-\t")
-}
-
-fn looks_binary(bytes: &[u8]) -> bool {
+pub fn looks_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(BINARY_SNIFF_BYTES).any(|byte| *byte == 0)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command as StdCommand;
-
     use super::*;
 
-    struct Plane {
-        dir: tempfile::TempDir,
-        env: EnvMap,
+    fn text(text: &str) -> Side {
+        Side::Bytes(text.as_bytes().to_vec())
     }
 
-    impl Plane {
-        fn new() -> Self {
-            let mut env: EnvMap = std::env::vars()
-                .filter(|(key, _)| !key.starts_with("GIT_"))
-                .collect();
-            for (key, value) in [
-                ("GIT_CONFIG_GLOBAL", "/dev/null"),
-                ("GIT_CONFIG_NOSYSTEM", "1"),
-                ("GIT_AUTHOR_NAME", "Test"),
-                ("GIT_AUTHOR_EMAIL", "test@example.com"),
-                ("GIT_COMMITTER_NAME", "Test"),
-                ("GIT_COMMITTER_EMAIL", "test@example.com"),
-            ] {
-                env.insert(key.into(), value.into());
-            }
-            Plane {
-                dir: tempfile::tempdir().unwrap(),
-                env,
-            }
-        }
-
-        /// A plane with one Member, `web`, holding a committed `a.txt`.
-        fn with_repo() -> Self {
-            let plane = Plane::new();
-            std::fs::create_dir_all(plane.root().join("web")).unwrap();
-            plane.git(&["init", "-q", "-b", "main"]);
-            plane.write("web/a.txt", "one\ntwo\n");
-            plane.git(&["add", "."]);
-            plane.git(&["commit", "-q", "-m", "init"]);
-            plane
-        }
-
-        fn root(&self) -> &Path {
-            self.dir.path()
-        }
-
-        fn git(&self, args: &[&str]) {
-            let output = StdCommand::new("git")
-                .args(args)
-                .current_dir(self.root().join("web"))
-                .env_clear()
-                .envs(&self.env)
-                .output()
-                .unwrap();
-            assert!(output.status.success(), "{output:?}");
-        }
-
-        fn write(&self, path: &str, contents: impl AsRef<[u8]>) {
-            let path = self.root().join(path);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, contents).unwrap();
-        }
-
-        async fn diff(&self, path: &str, mode: DiffMode) -> FileDiff {
-            file_diff(self.root(), path, mode, false, &self.env)
-                .await
-                .unwrap()
-        }
-
-        async fn contents(&self, path: &str, mode: DiffMode) -> (String, String) {
-            let contents = file_contents(self.root(), path, mode, &self.env)
-                .await
-                .unwrap();
-            (contents.old, contents.new)
-        }
-    }
-
-    fn patch(diff: FileDiff) -> String {
+    fn patch_of(diff: FileDiff) -> String {
         match diff {
             FileDiff::Diff { patch } => patch,
             other => panic!("expected a diff, got {other:?}"),
         }
     }
 
-    #[tokio::test]
-    async fn each_mode_compares_its_own_sides() {
-        let plane = Plane::with_repo();
-        plane.write("web/a.txt", "one\nstaged\n");
-        plane.git(&["add", "a.txt"]);
-        plane.write("web/a.txt", "one\nstaged\nunstaged\n");
-
-        let index = patch(plane.diff("web/a.txt", DiffMode::Index).await);
-        assert!(index.contains("-two\n+staged\n"), "{index}");
-        assert!(!index.contains("unstaged"), "{index}");
-
-        let worktree = patch(plane.diff("web/a.txt", DiffMode::Worktree).await);
-        assert!(worktree.contains(" staged\n+unstaged\n"), "{worktree}");
-        assert!(!worktree.contains("-two"), "{worktree}");
-
-        let file = patch(plane.diff("web/a.txt", DiffMode::File).await);
-        assert!(file.contains("-two\n+staged\n+unstaged\n"), "{file}");
-        assert!(file.starts_with("diff --git a/a.txt b/a.txt\n"), "{file}");
-    }
-
-    #[tokio::test]
-    async fn an_unchanged_file_is_plain_or_has_no_change() {
-        let plane = Plane::with_repo();
-        assert_eq!(
-            plane.diff("web/a.txt", DiffMode::File).await,
-            FileDiff::Plain
+    #[test]
+    fn a_change_is_a_git_style_patch() {
+        let diff = diff(
+            "a.txt",
+            "a.txt",
+            &text("one\ntwo\n"),
+            &text("one\nstaged\n"),
+            FileDiff::None,
         );
         assert_eq!(
-            plane.diff("web/a.txt", DiffMode::Index).await,
-            FileDiff::None
-        );
-        assert_eq!(
-            plane.diff("web/a.txt", DiffMode::Worktree).await,
-            FileDiff::None
-        );
-    }
-
-    #[tokio::test]
-    async fn an_untracked_file_is_all_added() {
-        let plane = Plane::with_repo();
-        plane.write("web/new/b.txt", "fresh\n");
-        let diff = patch(plane.diff("web/new/b.txt", DiffMode::Worktree).await);
-        assert!(diff.contains("new file mode"), "{diff}");
-        assert!(diff.contains("+fresh\n"), "{diff}");
-        assert!(matches!(
-            plane.diff("web/new/b.txt", DiffMode::File).await,
-            FileDiff::Diff { .. }
-        ));
-        assert_eq!(
-            plane.diff("web/new/b.txt", DiffMode::Index).await,
-            FileDiff::None
-        );
-        assert_eq!(
-            plane.contents("web/new/b.txt", DiffMode::File).await,
-            (String::new(), "fresh\n".into())
-        );
-    }
-
-    #[tokio::test]
-    async fn ignored_and_outside_repo_files_are_plain() {
-        let plane = Plane::with_repo();
-        plane.write("web/.gitignore", "*.log\n");
-        plane.write("web/debug.log", "noise\n");
-        plane.write("plane.toml", "version = 1\n");
-        plane.write(".bitplane/state", "");
-        assert_eq!(
-            plane.diff("web/debug.log", DiffMode::File).await,
-            FileDiff::Plain
-        );
-        assert_eq!(
-            plane.diff("plane.toml", DiffMode::File).await,
-            FileDiff::Plain
-        );
-        assert_eq!(
-            plane.diff(".bitplane/state", DiffMode::File).await,
-            FileDiff::Plain
-        );
-        assert_eq!(
-            plane.diff("web/.git/HEAD", DiffMode::File).await,
-            FileDiff::Plain
-        );
-        assert!(
-            file_diff(
-                plane.root(),
-                "missing.toml",
-                DiffMode::File,
-                false,
-                &plane.env
-            )
-            .await
-            .is_err()
-        );
-    }
-
-    #[tokio::test]
-    async fn a_staged_rename_diffs_against_its_old_path() {
-        let plane = Plane::with_repo();
-        plane.git(&["mv", "a.txt", "b.txt"]);
-        let diff = patch(plane.diff("web/b.txt", DiffMode::Index).await);
-        assert!(
-            diff.contains("rename from a.txt\nrename to b.txt"),
-            "{diff}"
-        );
-        assert_eq!(
-            plane.contents("web/b.txt", DiffMode::Index).await,
-            ("one\ntwo\n".into(), "one\ntwo\n".into())
-        );
-    }
-
-    #[tokio::test]
-    async fn a_deleted_file_is_all_removed() {
-        let plane = Plane::with_repo();
-        std::fs::remove_file(plane.root().join("web/a.txt")).unwrap();
-        let worktree = patch(plane.diff("web/a.txt", DiffMode::Worktree).await);
-        assert!(worktree.contains("deleted file mode"), "{worktree}");
-        assert!(worktree.contains("-one\n-two\n"), "{worktree}");
-        plane.git(&["rm", "-q", "a.txt"]);
-        let index = patch(plane.diff("web/a.txt", DiffMode::Index).await);
-        assert!(index.contains("deleted file mode"), "{index}");
-        assert_eq!(
-            plane.contents("web/a.txt", DiffMode::Index).await,
-            ("one\ntwo\n".into(), String::new())
-        );
-    }
-
-    #[tokio::test]
-    async fn binary_files_report_their_sizes() {
-        let plane = Plane::with_repo();
-        plane.write("web/img.bin", [0u8, 1, 2, 3]);
-        plane.git(&["add", "img.bin"]);
-        plane.git(&["commit", "-q", "-m", "bin"]);
-        plane.write("web/img.bin", [0u8, 1, 2, 3, 4, 5]);
-        assert_eq!(
-            plane.diff("web/img.bin", DiffMode::Worktree).await,
-            FileDiff::Binary {
-                old_size: 4,
-                new_size: 6
-            }
-        );
-        plane.write("web/new.bin", [0u8, 9]);
-        assert_eq!(
-            plane.diff("web/new.bin", DiffMode::Worktree).await,
-            FileDiff::Binary {
-                old_size: 0,
-                new_size: 2
-            }
-        );
-        assert_eq!(
-            read_file(plane.root(), "web/new.bin").unwrap(),
-            FileText::Binary { size: 2 }
-        );
-    }
-
-    #[tokio::test]
-    async fn large_files_are_too_large() {
-        let plane = Plane::with_repo();
-        let big = "x".repeat(MAX_FILE_BYTES as usize + 1);
-        plane.write("web/a.txt", &big);
-        plane.write("web/big.txt", &big);
-        let size = MAX_FILE_BYTES + 1;
-        assert_eq!(
-            plane.diff("web/a.txt", DiffMode::Worktree).await,
-            FileDiff::TooLarge { size }
-        );
-        assert_eq!(
-            plane.diff("web/big.txt", DiffMode::File).await,
-            FileDiff::TooLarge { size }
-        );
-        assert_eq!(
-            read_file(plane.root(), "web/big.txt").unwrap(),
-            FileText::TooLarge { size }
-        );
-        let forced = file_diff(
-            plane.root(),
-            "web/a.txt",
-            DiffMode::Worktree,
-            true,
-            &plane.env,
-        )
-        .await
-        .unwrap();
-        assert!(matches!(forced, FileDiff::Diff { .. }), "{forced:?}");
-    }
-
-    #[tokio::test]
-    async fn refuses_paths_that_leave_the_plane() {
-        let plane = Plane::with_repo();
-        for relative in ["..", "../x", "/etc/passwd", "web/../../x", "", "web/"] {
-            assert!(
-                file_diff(plane.root(), relative, DiffMode::File, false, &plane.env)
-                    .await
-                    .is_err(),
-                "{relative}"
-            );
-            assert!(read_file(plane.root(), relative).is_err(), "{relative}");
-        }
-    }
-
-    #[tokio::test]
-    async fn a_missing_worktree_is_an_error() {
-        let plane = Plane::new();
-        assert!(
-            file_diff(plane.root(), "web/a.txt", DiffMode::File, false, &plane.env)
-                .await
-                .is_err()
+            patch_of(diff),
+            "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n one\n-two\n+staged\n"
         );
     }
 
     #[test]
-    fn reads_plain_text() {
-        let plane = Plane::new();
-        plane.write("plane.toml", "version = 1\n");
+    fn equal_sides_show_what_the_mode_says() {
+        let side = text("same\n");
         assert_eq!(
-            read_file(plane.root(), "plane.toml").unwrap(),
+            diff("a", "a", &side, &side, FileDiff::Plain),
+            FileDiff::Plain
+        );
+        assert_eq!(diff("a", "a", &side, &side, FileDiff::None), FileDiff::None);
+        assert_eq!(
+            diff("a", "a", &Side::Missing, &Side::Missing, FileDiff::None),
+            FileDiff::None
+        );
+    }
+
+    #[test]
+    fn a_new_file_is_all_added_and_a_deleted_one_all_removed() {
+        let added = patch_of(diff(
+            "n.txt",
+            "n.txt",
+            &Side::Missing,
+            &text("x\ny\n"),
+            FileDiff::None,
+        ));
+        assert_eq!(
+            added,
+            "diff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,2 @@\n+x\n+y\n"
+        );
+        let deleted = patch_of(diff(
+            "n.txt",
+            "n.txt",
+            &text("x\n"),
+            &Side::Missing,
+            FileDiff::None,
+        ));
+        assert!(
+            deleted.contains("deleted file mode 100644\n--- a/n.txt\n+++ /dev/null\n"),
+            "{deleted}"
+        );
+        assert!(deleted.ends_with("@@ -1 +0,0 @@\n-x\n"), "{deleted}");
+    }
+
+    #[test]
+    fn a_rename_diffs_against_its_old_path() {
+        let patch = patch_of(diff(
+            "old.txt",
+            "new.txt",
+            &text("a\nb\n"),
+            &text("a\nc\n"),
+            FileDiff::None,
+        ));
+        assert!(
+            patch.starts_with("diff --git a/old.txt b/new.txt\nrename from old.txt\nrename to new.txt\n--- a/old.txt\n+++ b/new.txt\n"),
+            "{patch}"
+        );
+    }
+
+    #[test]
+    fn a_missing_final_newline_is_marked() {
+        let patch = patch_of(diff("a", "a", &text("a\n"), &text("a\nb"), FileDiff::None));
+        assert!(
+            patch.ends_with("+b\n\\ No newline at end of file\n"),
+            "{patch}"
+        );
+    }
+
+    #[test]
+    fn binary_sides_report_their_sizes() {
+        let binary = Side::Bytes(vec![0, 1, 2]);
+        assert_eq!(
+            diff("a", "a", &Side::Missing, &binary, FileDiff::None),
+            FileDiff::Binary {
+                old_size: 0,
+                new_size: 3
+            }
+        );
+        assert_eq!(file_text(&binary), FileText::Binary { size: 3 });
+    }
+
+    #[test]
+    fn a_side_read_without_bytes_is_too_large() {
+        assert_eq!(
+            diff(
+                "a",
+                "a",
+                &text("small"),
+                &Side::TooLarge { size: 2_000_000 },
+                FileDiff::None
+            ),
+            FileDiff::TooLarge { size: 2_000_000 }
+        );
+        assert_eq!(
+            file_text(&Side::TooLarge { size: 5 }),
+            FileText::TooLarge { size: 5 }
+        );
+    }
+
+    #[test]
+    fn plain_text_is_shown_as_is() {
+        assert_eq!(
+            file_text(&text("hello")),
             FileText::Text {
-                contents: "version = 1\n".into()
+                contents: "hello".into()
             }
         );
     }
