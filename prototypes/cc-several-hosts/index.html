@@ -1,0 +1,405 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throw away. Question: how does cc show several hosts across several gateways
+  (bitplane-cc#63)? Three structurally different sidebars, switchable via ?variant=A|B|C
+  or ←/→. The left-bottom panel simulates gateway/host status. Mock data only, no backend.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>PROTOTYPE · cc with several hosts</title>
+<style>
+:root {
+  --bg: #000; --panel: #080808; --raised: #121212; --hover: #161616; --line: #222; --line-strong: #333;
+  --text: #f5f5f5; --dim: #8c8c8c; --faint: #555; --accent: #4cb8b4; --accent-soft: rgba(76,184,180,.14);
+  --accent-text: #bfecea; --warn: #ffb020; --danger: #ff5a5a; --danger-bg: #2a0e0e; --danger-line: #4a1818;
+  --mono: ui-monospace, Menlo, monospace; --sans: -apple-system, "Inter", system-ui, sans-serif; --bar: 40px;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { font: 13px var(--sans); background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; }
+button { font: inherit; color: inherit; background: transparent; border: 0; border-radius: 6px; cursor: pointer; padding: 2px 6px; }
+button:hover { background: var(--hover); }
+select, input { font: inherit; color: var(--text); background: var(--raised); border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 6px; }
+.app { display: flex; height: 100%; }
+.sidebar { width: 290px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.head { display: flex; align-items: center; height: var(--bar); padding: 0 8px 0 14px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; color: var(--dim); border-bottom: 1px solid var(--line); gap: 6px; }
+.head .sp { flex: 1; }
+.ib { width: 26px; height: 26px; padding: 0; color: var(--dim); display: inline-grid; place-items: center; }
+.ib:hover { color: var(--text); }
+.list { flex: 1; overflow: auto; padding: 6px 0; }
+.footer { border-top: 1px solid var(--line); padding: 8px 12px; font-size: 11px; color: var(--faint); display: flex; gap: 6px; align-items: center; }
+.footer .sp { flex: 1; }
+.group { margin: 0 6px 2px; border-radius: 8px; }
+.group.sel { background: var(--raised); }
+.plane { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 10px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+.plane:hover { background: var(--hover); }
+.plane .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group.sel .plane .name { color: #fff; }
+.plane.draft .name { color: var(--dim); }
+.plane.stale .name { color: var(--faint); }
+.count { font: 11px var(--mono); color: var(--dim); background: #1c1c1c; border-radius: 8px; padding: 0 6px; }
+.badge { font-size: 10px; border-radius: 4px; padding: 0 5px; border: 1px solid var(--line-strong); color: var(--dim); }
+.sessions { margin: 0 0 4px 18px; padding: 0 0 4px 10px; border-left: 1px solid #2c2c2c; }
+.session { height: 24px; display: flex; align-items: center; padding: 0 8px; border-radius: 6px; font: 12px var(--mono); color: var(--dim); }
+.session.cur { color: var(--accent-text); background: var(--accent-soft); font-weight: 600; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.s-ready { background: var(--accent); }
+.s-idle { background: transparent; border: 1.5px solid var(--faint); }
+.s-connecting { background: var(--warn); animation: pulse 1s infinite; }
+.s-bootstrapping { background: #7aa2ff; animation: pulse 1s infinite; }
+.s-error { background: var(--danger); }
+.s-down { background: var(--danger); }
+@keyframes pulse { 50% { opacity: .35; } }
+.err { margin: 2px 6px 6px 22px; padding: 6px 8px; border: 1px solid var(--danger-line); background: var(--danger-bg); border-radius: 6px; font-size: 11.5px; color: #ffbdbd; }
+.err code { font: 11px var(--mono); display: block; margin-top: 3px; color: #ff9a9a; white-space: pre-wrap; user-select: text; }
+.err .acts { margin-top: 5px; display: flex; gap: 6px; }
+.err .acts button { font-size: 11px; border: 1px solid var(--danger-line); }
+.note { margin: 2px 6px 6px 22px; font-size: 11.5px; color: var(--dim); }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.tabbar { height: var(--bar); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 12px; gap: 8px; color: var(--dim); }
+.tabbar .crumb b { color: var(--text); }
+.term { flex: 1; padding: 16px; font: 12px var(--mono); color: #9fd; white-space: pre; overflow: auto; }
+.empty { flex: 1; display: grid; place-items: center; color: var(--faint); }
+
+/* A: host tree */
+.gw { margin: 8px 6px 2px; display: flex; align-items: center; gap: 6px; padding: 0 6px; height: 22px; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+.gw .url { text-transform: none; letter-spacing: 0; font: 10.5px var(--mono); color: var(--faint); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gw .sp { flex: 1; }
+.host { margin: 0 6px; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 4px 0 8px; border-radius: 7px; color: var(--dim); font-weight: 600; cursor: pointer; }
+.host:hover { background: var(--hover); color: var(--text); }
+.host .name { flex: 1; }
+.host .stat { font-size: 11px; font-weight: 400; color: var(--faint); }
+.host .plus { opacity: 0; }
+.host:hover .plus { opacity: 1; }
+.hostPlanes { margin-left: 14px; }
+.cfgErr { margin: 0 12px 4px; font-size: 11px; color: var(--warn); }
+
+/* B: flat */
+.chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--line-strong); font-size: 11.5px; color: var(--dim); }
+.chip.on { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+.hostTag { font: 10.5px var(--mono); padding: 0 5px; border-radius: 4px; color: #000; font-weight: 600; }
+.mark { width: 2px; height: 12px; border-radius: 1px; opacity: .5; flex-shrink: 0; margin-right: 2px; }
+.chev { width: 20px; height: 20px; padding: 0; color: var(--dim); font-size: 11px; flex-shrink: 0; }
+.dd { position: relative; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.ddBtn { width: 100%; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--raised); text-align: left; }
+.ddMenu { position: absolute; z-index: 6; left: 10px; right: 10px; top: 40px; background: var(--raised); border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px; box-shadow: 0 8px 30px #000a; }
+.ddItem { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px; border-radius: 6px; cursor: pointer; }
+.ddItem:hover { background: var(--hover); }
+.ddItem.on { background: var(--accent-soft); color: var(--accent-text); }
+.ddItem.dis { cursor: default; color: var(--faint); }
+.ddGw { padding: 6px 8px 2px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); font-weight: 700; }
+.sp { flex: 1; }
+.dim { color: var(--faint); font-size: 11px; }
+.mono { font-family: var(--mono); text-transform: none; letter-spacing: 0; font-weight: 400; }
+.sw { width: 4px; height: 14px; border-radius: 2px; flex-shrink: 0; }
+.errB { padding: 6px 4px 0 10px; font-size: 11.5px; color: var(--dim); }
+.errB .err { margin-left: 0; }
+.pop { position: absolute; z-index: 5; width: 300px; background: var(--raised); border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px; box-shadow: 0 8px 30px #000a; }
+
+/* C: rail */
+.rail { width: 56px; flex-shrink: 0; background: #050505; border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 6px; overflow: auto; }
+.rail .sep { width: 28px; height: 1px; background: var(--line-strong); margin: 4px 0; }
+.rail .gwl { font-size: 9px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av { position: relative; width: 38px; height: 38px; border-radius: 10px; background: var(--raised); display: grid; place-items: center; font-weight: 700; font-size: 12px; color: var(--dim); border: 2px solid transparent; padding: 0; }
+.av.on { border-color: var(--accent); color: var(--text); }
+.av .dot { position: absolute; right: -2px; bottom: -2px; border: 2px solid #050505; width: 12px; height: 12px; }
+.av .n { position: absolute; top: -4px; right: -6px; font: 9.5px var(--mono); background: #333; color: var(--text); border-radius: 7px; padding: 0 4px; }
+.hostHead { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.hostHead .t { font-weight: 700; display: flex; gap: 7px; align-items: center; }
+.hostHead .u { font: 11px var(--mono); color: var(--faint); margin-top: 2px; }
+.bigErr { margin: 14px; padding: 12px; border: 1px solid var(--danger-line); background: var(--danger-bg); border-radius: 8px; color: #ffbdbd; }
+.bigErr code { font: 11.5px var(--mono); display: block; margin: 6px 0; white-space: pre-wrap; user-select: text; color: #ff9a9a; }
+
+/* dialogs */
+.scrim { position: fixed; inset: 0; background: #0009; display: grid; place-items: center; z-index: 20; }
+.dlg { width: 440px; background: var(--raised); border: 1px solid var(--line-strong); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.dlg h3 { margin: 0; font-size: 14px; }
+.dlg label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--dim); }
+.dlg .row { display: flex; gap: 8px; justify-content: flex-end; }
+.dlg .primary { background: var(--accent); color: #001a19; font-weight: 600; padding: 4px 12px; }
+.gwRow { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.gwRow .u { font: 11.5px var(--mono); color: var(--dim); flex: 1; }
+.hint { font-size: 11px; color: var(--faint); }
+
+/* prototype chrome: deliberately not part of the design */
+.proto { position: fixed; z-index: 50; font: 12px system-ui; color: #111; background: #ffe66d; border-radius: 10px; box-shadow: 0 6px 24px #0008; }
+.switcher { bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 20px; }
+.switcher button { color: #111; font-weight: 700; }
+.switcher button:hover { background: #0001; }
+.sim { bottom: 14px; right: 14px; width: 330px; padding: 10px; max-height: 70vh; overflow: auto; }
+.sim h4 { margin: 0 0 6px; font-size: 12px; }
+.sim select, .sim input { color: #111; background: #fff8c4; border: 1px solid #c9b23b; padding: 1px 4px; font-size: 11.5px; }
+.sim .r { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+.sim .r span { flex: 1; font-family: var(--mono); font-size: 11px; }
+.sim pre { font: 10px var(--mono); background: #fff8c4; padding: 6px; border-radius: 6px; max-height: 200px; overflow: auto; user-select: text; }
+.sim.min > :not(h4) { display: none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const VARIANTS = { A: "Host tree", B: "Flat planes + host chips", C: "Host rail" };
+const COLORS = ["#4cb8b4", "#e9a6ff", "#ffcf6b", "#8fd3ff", "#ff9f8a", "#b6e388"];
+
+const S = {
+  variant: new URLSearchParams(location.search).get("variant") || "A",
+  gateways: [
+    { url: "ws://127.0.0.1:7420", name: "This Mac", auto: true, conn: "ready", configError: null,
+      hosts: [{ id: "local", status: { kind: "ready" } }, { id: "segundo", status: { kind: "ready" } },
+              { id: "tercero", status: { kind: "error", phase: "ssh", message: "alfonz@tercero.internal: Permission denied (publickey)." } }] },
+    { url: "ws://homeserver.lan:7420", name: "home", auto: false, conn: "ready", configError: null,
+      hosts: [{ id: "local", status: { kind: "ready" } }, { id: "nas", status: { kind: "bootstrapping" } }] },
+    { url: "ws://10.20.0.5:7420", name: "work", auto: false, conn: "down", configError: null, hosts: [] },
+  ],
+  planes: [
+    { gw: 0, host: "local", id: "bitplane-stack", kind: "plane", sessions: ["zsh", "claude · planning", "pnpm dev"] },
+    { gw: 0, host: "local", id: "cc-hotfix", kind: "plane", sessions: [] },
+    { gw: 0, host: "local", id: "scratch", kind: "draft", sessions: ["zsh"] },
+    { gw: 0, host: "segundo", id: "core-api", kind: "plane", sessions: ["claude · DEV-412", "npm test"] },
+    { gw: 0, host: "segundo", id: "bitplane-stack", kind: "plane", sessions: ["claude · review"] },
+    { gw: 0, host: "tercero", id: "flux-sos", kind: "plane", sessions: ["zsh"] },
+    { gw: 1, host: "local", id: "media-scripts", kind: "plane", sessions: ["zsh"] },
+  ],
+  sel: { gw: 0, host: "local", plane: "bitplane-stack" },
+  railHost: { gw: 0, host: "local" },
+  filter: null, pop: null, dialog: null, collapsedHosts: {}, expanded: {}, simMin: false,
+};
+
+const hk = (gw, host) => `${gw}/${host}`;
+const gwOf = (i) => S.gateways[i];
+const hostLabel = (gw, host) => (host === "local" ? gwOf(gw).name : host);
+const hostLong = (gw, host) => (host === "local" ? `${gwOf(gw).name} (local)` : `${host} · via ${gwOf(gw).name}`);
+const allHosts = () => S.gateways.flatMap((g, gi) => g.hosts.map((h) => ({ gw: gi, ...h })));
+const color = (gw, host) => COLORS[allHosts().findIndex((h) => h.gw === gw && h.id === host) % COLORS.length] || "#888";
+const statusOf = (gw, host) => {
+  if (gwOf(gw).conn !== "ready") return { kind: "error", phase: "gateway", message: "gateway unreachable" };
+  return gwOf(gw).hosts.find((h) => h.id === host)?.status || { kind: "idle" };
+};
+const statText = (st) => st.kind === "error" ? `error · ${st.phase}` : st.kind;
+const planesOn = (gw, host) => S.planes.filter((p) => p.gw === gw && p.host === host);
+const known = (gw, host) => statusOf(gw, host).kind === "ready";
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const icon = { plus: "+", x: "×", gear: "⚙", chev: "▸" };
+
+function setVariant(v) {
+  S.variant = v; const u = new URL(location); u.searchParams.set("variant", v); history.replaceState(null, "", u); render();
+}
+function act(fn) { return `onclick="(${fn})();render()"`; }
+window.A = (f) => { f(); render(); };
+
+function planeRow(p, extra = "", stripe = null) {
+  const sel = S.sel.gw === p.gw && S.sel.host === p.host && S.sel.plane === p.id;
+  const stale = !known(p.gw, p.host);
+  const k = `${p.gw}/${p.host}/${p.id}`;
+  const open = p.sessions.length > 0 && S.expanded[k] !== false;
+  return `<div class="group ${sel ? "sel" : ""}" ${stripe ? `title="${esc(hostLong(p.gw, p.host))}"` : ""}>
+    <div class="plane ${p.kind} ${stale ? "stale" : ""}" style="padding-left:2px" onclick="A(()=>{S.sel={gw:${p.gw},host:'${p.host}',plane:'${p.id}'}})">
+      <button class="chev" style="visibility:${p.sessions.length ? "visible" : "hidden"}" onclick="event.stopPropagation();A(()=>{S.expanded['${k}']=${!open}})">${open ? "▾" : "▸"}</button>
+      ${stripe ? `<span class="mark" style="background:${stripe}"></span>` : ""}${extra}<span class="name">${esc(p.id)}</span>
+      ${p.kind === "draft" ? `<span class="badge">draft</span>` : ""}
+      ${!open && p.sessions.length ? `<span class="count">${p.sessions.length}</span>` : ""}
+      ${stale ? `<span class="badge" title="host not ready, last known state">stale</span>` : ""}
+    </div>
+    ${open ? `<div class="sessions">${p.sessions.map((s, i) => `<div class="session ${sel && i === 0 ? "cur" : ""}">${esc(s)}</div>`).join("")}</div>` : ""}
+  </div>`;
+}
+
+function errBox(gw, host, st) {
+  return `<div class="err">${st.phase === "gateway" ? "Gateway unreachable" : `Failed at <b>${st.phase}</b>`}
+    <code>${esc(st.message)}</code>
+    <div class="acts"><button onclick="A(()=>retry(${gw},'${host}'))">Retry</button>${st.phase !== "gateway" ? `<button>Copy ssh command</button>` : ""}</div></div>`;
+}
+
+function retry(gw, host) {
+  const g = gwOf(gw);
+  if (g.conn !== "ready") { g.conn = "connecting"; setTimeout(() => { g.conn = "ready"; g.hosts = [{ id: "local", status: { kind: "ready" } }]; render(); }, 1200); return; }
+  const h = g.hosts.find((x) => x.id === host);
+  h.status = { kind: "connecting" };
+  setTimeout(() => { h.status = { kind: "ready" }; render(); }, 1200);
+}
+
+/* ---------------- Variant A: gateway › host › plane tree ---------------- */
+function VariantA() {
+  const body = S.gateways.map((g, gi) => {
+    const gwDot = g.conn === "ready" ? "s-ready" : g.conn === "connecting" ? "s-connecting" : "s-down";
+    const hosts = g.conn === "ready" ? g.hosts.map((h) => {
+      const k = hk(gi, h.id), col = S.collapsedHosts[k], st = statusOf(gi, h.id);
+      const planes = planesOn(gi, h.id);
+      return `<div class="host" onclick="A(()=>{S.collapsedHosts['${k}']=!S.collapsedHosts['${k}']})">
+          <span style="color:var(--faint);width:10px">${col ? "▸" : "▾"}</span>
+          <span class="dot s-${st.kind}"></span><span class="name">${esc(h.id === "local" ? "local" : h.id)}</span>
+          ${st.kind !== "ready" ? `<span class="stat">${statText(st)}</span>` : ""}
+          <button class="ib plus" title="New plane on ${h.id}" onclick="event.stopPropagation();A(()=>{S.dialog={kind:'create',gw:${gi},host:'${h.id}'}})">+</button>
+        </div>
+        ${col ? "" : `${st.kind === "error" ? errBox(gi, h.id, st) : ""}
+          ${st.kind === "bootstrapping" ? `<div class="note">Installing bitplane-sessiond on ${h.id}…</div>` : ""}
+          <div class="hostPlanes">${planes.map((p) => planeRow(p)).join("") || (st.kind === "ready" ? `<div class="note">No planes</div>` : "")}</div>`}`;
+    }).join("") : errBox(gi, null, { phase: "gateway", message: `${g.url}: connection refused` });
+    return `<div class="gw"><span class="dot ${gwDot}"></span>${esc(g.name)}<span class="url">${esc(g.url)}</span><span class="sp"></span></div>
+      ${g.configError ? `<div class="cfgErr">⚠ config.toml invalid, using last good list: ${esc(g.configError)}</div>` : ""}${hosts}`;
+  }).join("");
+  return `<aside class="sidebar">
+    <header class="head"><span>Hosts</span><span class="sp"></span>
+      <button class="ib" title="Create plane" onclick="A(()=>{S.dialog={kind:'create',gw:S.sel.gw,host:S.sel.host}})">+</button></header>
+    <nav class="list">${body}</nav>
+    <footer class="footer"><span class="sp">${S.gateways.length} gateways</span><button class="ib" title="Gateways" onclick="A(()=>{S.dialog={kind:'gateways'}})">⚙</button></footer>
+  </aside>`;
+}
+
+/* ---------------- Variant B: flat planes, host chips ---------------- */
+function VariantB() {
+  const hosts = allHosts();
+  const bad = hosts.filter((h) => statusOf(h.gw, h.id).kind === "error").length + S.gateways.filter((g) => g.conn !== "ready").length;
+  const busy = hosts.some((h) => ["connecting", "bootstrapping"].includes(statusOf(h.gw, h.id).kind));
+  const cur = S.filter ? hosts.find((h) => hk(h.gw, h.id) === S.filter) : null;
+  const curSt = cur ? statusOf(cur.gw, cur.id) : null;
+  const aggDot = cur ? `s-${curSt.kind}` : bad ? "s-error" : busy ? "s-connecting" : "s-ready";
+  const item = (k, inner, on) => `<div class="ddItem ${on ? "on" : ""}" onclick="A(()=>{S.filter=${k ? `'${k}'` : "null"};S.ddOpen=false})">${inner}</div>`;
+  const menu = !S.ddOpen ? "" : `<div class="ddMenu">
+    ${item(null, `<span class="dot ${bad ? "s-error" : "s-ready"}"></span><span class="sp">All hosts</span><span class="dim">${hosts.length}</span>`, !S.filter)}
+    ${S.gateways.map((g, gi) => `<div class="ddGw">${esc(g.name)} <span class="dim mono">${esc(g.url)}</span></div>
+      ${g.conn !== "ready" ? `<div class="ddItem dis"><span class="dot s-down"></span><span class="sp">gateway unreachable</span></div>`
+        : g.hosts.map((h) => { const st = statusOf(gi, h.id), k = hk(gi, h.id);
+          return item(k, `<span class="sw" style="background:${color(gi, h.id)}"></span><span class="dot s-${st.kind}"></span>
+            <span class="sp">${esc(hostLabel(gi, h.id))}</span><span class="dim">${st.kind === "ready" ? planesOn(gi, h.id).length : statText(st)}</span>`, S.filter === k); }).join("")}`).join("")}
+  </div>`;
+  const dd = `<div class="dd"><button class="ddBtn" onclick="A(()=>{S.ddOpen=!S.ddOpen})">
+      ${cur ? `<span class="sw" style="background:${color(cur.gw, cur.id)}"></span>` : ""}<span class="dot ${aggDot}"></span>
+      <span class="sp">${cur ? esc(hostLong(cur.gw, cur.id)) : "All hosts"}</span>
+      ${!cur && bad ? `<span style="color:var(--danger);font-size:11px">${bad} unreachable</span>` : ""}<span class="dim">▾</span></button>${menu}</div>`;
+  const errs = (cur ? (curSt.kind === "error" ? [[cur.gw, cur.id, curSt]] : [])
+    : [...hosts.filter((h) => statusOf(h.gw, h.id).kind === "error").map((h) => [h.gw, h.id, statusOf(h.gw, h.id)]),
+       ...S.gateways.map((g, gi) => g.conn !== "ready" ? [gi, null, { phase: "gateway", message: `${g.url}: connection refused` }] : null).filter(Boolean)])
+    .map(([gi, host, st]) => `<div class="errB"><b>${esc(host ? hostLong(gi, host) : gwOf(gi).name)}</b>${errBox(gi, host, st)}</div>`).join("");
+  const pop = "";
+  const rows = S.planes.filter((p) => !S.filter || hk(p.gw, p.host) === S.filter)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((p) => planeRow(p, "", color(p.gw, p.host))).join("");
+  return `<aside class="sidebar" style="position:relative">
+    <header class="head"><span>Planes</span><span class="sp"></span>
+      <button class="ib" title="Create plane" onclick="A(()=>{S.dialog={kind:'create',gw:S.sel.gw,host:S.sel.host,pick:true}})">+</button></header>
+    ${dd}${errs}
+    <nav class="list">${rows}</nav>
+    <footer class="footer"><span class="sp">${hosts.length} hosts${bad ? ` · <span style="color:var(--danger)">${bad} unreachable</span>` : ""}</span>
+      <button class="ib" title="Settings → Gateways" onclick="A(()=>{S.dialog={kind:'gateways'}})">⚙</button></footer>
+  </aside>`;
+}
+
+/* ---------------- Variant C: host rail + per-host sidebar ---------------- */
+function VariantC() {
+  const rail = S.gateways.map((g, gi) => {
+    const avs = g.conn === "ready" ? g.hosts.map((h) => {
+      const st = statusOf(gi, h.id), on = S.railHost.gw === gi && S.railHost.host === h.id;
+      const n = planesOn(gi, h.id).reduce((a, p) => a + p.sessions.length, 0);
+      const lbl = hostLabel(gi, h.id);
+      return `<button class="av ${on ? "on" : ""}" title="${esc(hostLong(gi, h.id))} — ${statText(st)}" style="color:${on ? color(gi, h.id) : ""}"
+        onclick="A(()=>{S.railHost={gw:${gi},host:'${h.id}'}})">${esc(lbl.slice(0, 2).toUpperCase())}
+        <span class="dot s-${st.kind}"></span>${n ? `<span class="n">${n}</span>` : ""}</button>`;
+    }).join("") : `<button class="av" title="${esc(g.url)}: unreachable" onclick="A(()=>{S.railHost={gw:${gi},host:null}})">${esc(g.name.slice(0, 2).toUpperCase())}<span class="dot s-down"></span></button>`;
+    return `${gi ? `<div class="sep"></div>` : ""}<div class="gwl" title="${esc(g.url)}">${esc(g.name)}</div>${avs}`;
+  }).join("") + `<div class="sep"></div><button class="av" title="Add gateway" onclick="A(()=>{S.dialog={kind:'gateways'}})">+</button>`;
+  const { gw, host } = S.railHost; const g = gwOf(gw);
+  let body;
+  if (host === null) body = `<div class="bigErr"><b>Gateway unreachable</b><code>${esc(g.url)}: connection refused</code><button onclick="A(()=>retry(${gw},null))">Retry</button></div>`;
+  else {
+    const st = statusOf(gw, host);
+    body = st.kind === "error" ? `<div class="bigErr"><b>Can't reach ${esc(host)}</b> — failed at ${st.phase}<code>${esc(st.message)}</code>
+        <button onclick="A(()=>retry(${gw},'${host}'))">Retry</button> <button>Copy ssh command</button></div>
+        <div class="note" style="margin-left:14px">Last known planes:</div>${planesOn(gw, host).map((p) => planeRow(p)).join("")}`
+      : st.kind === "bootstrapping" ? `<div class="note" style="margin:14px">Installing bitplane-sessiond on ${esc(host)}…</div>`
+      : planesOn(gw, host).map((p) => planeRow(p)).join("") || `<div class="note" style="margin:14px">No planes on ${esc(host)}</div>`;
+  }
+  const st = host === null ? { kind: "down" } : statusOf(gw, host);
+  return `<nav class="rail">${rail}</nav>
+  <aside class="sidebar" style="width:250px">
+    <div class="hostHead"><div class="t"><span class="dot s-${st.kind}"></span>${esc(host === null ? g.name : hostLong(gw, host))}<span style="flex:1"></span>
+      ${host !== null ? `<button class="ib" title="Create plane on this host" onclick="A(()=>{S.dialog={kind:'create',gw:${gw},host:'${host}'}})">+</button>` : ""}</div>
+      <div class="u">${esc(g.url)}${host ? ` · ${host}` : ""} · ${statText(st)}</div></div>
+    <nav class="list">${body}</nav>
+  </aside>`;
+}
+
+/* ---------------- shared: main area + dialogs ---------------- */
+function Main() {
+  const p = S.planes.find((x) => x.gw === S.sel.gw && x.host === S.sel.host && x.id === S.sel.plane);
+  if (!p) return `<div class="main"><div class="empty">No plane selected</div></div>`;
+  return `<div class="main"><div class="tabbar crumb"><span class="hostTag" style="background:${color(p.gw, p.host)}">${esc(hostLabel(p.gw, p.host))}</span>
+    <b>${esc(p.id)}</b> <span>— ${esc(hostLong(p.gw, p.host))}</span></div>
+    <div class="term">${esc(`${p.host === "local" ? gwOf(p.gw).name.toLowerCase().replace(/ /g, "-") : p.host}:~/planes/${p.id} $ ▌`)}</div></div>`;
+}
+
+function Dialog() {
+  const d = S.dialog; if (!d) return "";
+  if (d.kind === "create") {
+    const opts = allHosts().map((h) => {
+      const st = statusOf(h.gw, h.id);
+      return `<option ${h.gw === d.gw && h.id === d.host ? "selected" : ""} ${st.kind === "error" ? "disabled" : ""}>${esc(hostLong(h.gw, h.id))}${st.kind !== "ready" ? ` (${statText(st)})` : ""}</option>`;
+    }).join("");
+    const fixed = S.variant !== "B";
+    return `<div class="scrim" onclick="if(event.target===this)A(()=>{S.dialog=null})"><div class="dlg">
+      <h3>Create plane</h3>
+      ${fixed ? `<div class="hint">On <b style="color:var(--text)">${esc(hostLong(d.gw, d.host))}</b></div>` : `<label>Host<select>${opts}</select></label>`}
+      <label>Plane id<input value="new-plane" /></label>
+      <label>Members<input placeholder="@bp/bitplane-cli @bp/bitplane-cc" /></label>
+      ${fixed ? `<details class="hint"><summary>Different host…</summary><select style="margin-top:6px">${opts}</select></details>` : ""}
+      <div class="row"><button onclick="A(()=>{S.dialog=null})">Cancel</button><button class="primary" onclick="A(()=>{S.dialog=null})">Create</button></div>
+    </div></div>`;
+  }
+  return `<div class="scrim" onclick="if(event.target===this)A(()=>{S.dialog=null})"><div class="dlg">
+    <h3>Gateways</h3>
+    ${S.gateways.map((g, gi) => `<div class="gwRow"><span class="dot ${g.conn === "ready" ? "s-ready" : "s-down"}"></span>
+      <b>${esc(g.name)}</b><span class="u">${esc(g.url)}</span>
+      ${g.auto ? `<span class="badge">auto-started</span>` : `<button onclick="A(()=>removeGw(${gi}))">Remove</button>`}</div>`).join("")}
+    <label>Add a gateway<input id="newgw" placeholder="ws://host:7420" /></label>
+    <label>Name<input id="newgwname" placeholder="e.g. home" /></label>
+    <div class="hint">Hosts come from each gateway's config.toml; cc can't add or remove them. <button style="font-size:11px;text-decoration:underline">Reveal config.toml</button> (local gateway only)</div>
+    <div class="row"><button onclick="A(()=>{S.dialog=null})">Close</button><button class="primary" onclick="A(addGw)">Add</button></div>
+  </div></div>`;
+}
+function removeGw(gi) {
+  S.gateways.splice(gi, 1);
+  S.planes = S.planes.filter((p) => p.gw !== gi).map((p) => ({ ...p, gw: p.gw > gi ? p.gw - 1 : p.gw }));
+  S.sel = { gw: 0, host: "local", plane: "bitplane-stack" }; S.railHost = { gw: 0, host: "local" }; S.filter = null;
+}
+function addGw() {
+  const url = document.getElementById("newgw").value || "ws://new:7420";
+  const name = document.getElementById("newgwname").value || url.replace(/^ws:\/\/|:\d+$/g, "");
+  S.gateways.push({ url, name, auto: false, conn: "ready", configError: null, hosts: [{ id: "local", status: { kind: "connecting" } }] });
+}
+
+/* ---------------- prototype chrome ---------------- */
+function Sim() {
+  const kinds = ["idle", "connecting", "bootstrapping", "ready", "error"];
+  const phases = ["ssh", "probe", "upload", "verify", "service", "linger", "bridge"];
+  const rows = S.gateways.map((g, gi) => `<div class="r"><span><b>${esc(g.name)}</b> gateway</span>
+      <select onchange="A(()=>{gwOf(${gi}).conn=this.value})">${["ready", "connecting", "down"].map((k) => `<option ${g.conn === k ? "selected" : ""}>${k}</option>`).join("")}</select>
+      <label title="configError"><input type="checkbox" ${g.configError ? "checked" : ""} onchange="A(()=>{gwOf(${gi}).configError=this.checked?'hosts.nas: missing destination':null})">cfgErr</label></div>
+    ${g.hosts.map((h, hi) => `<div class="r"><span>&nbsp;&nbsp;${esc(h.id)}</span>
+      <select onchange="A(()=>{const s=gwOf(${gi}).hosts[${hi}];s.status=this.value==='error'?{kind:'error',phase:'ssh',message:'ssh: connect to host ${h.id} port 22: Operation timed out'}:{kind:this.value}})">${kinds.map((k) => `<option ${h.status.kind === k ? "selected" : ""}>${k}</option>`).join("")}</select>
+      ${h.status.kind === "error" ? `<select onchange="A(()=>{gwOf(${gi}).hosts[${hi}].status.phase=this.value})">${phases.map((p) => `<option ${h.status.phase === p ? "selected" : ""}>${p}</option>`).join("")}</select>` : ""}</div>`).join("")}`).join("");
+  const state = { variant: S.variant, sel: S.sel, railHost: S.railHost, filter: S.filter,
+    hosts: Object.fromEntries(S.gateways.flatMap((g, gi) => [[g.name, g.conn], ...g.hosts.map((h) => [`${g.name}/${h.id}`, statText(statusOf(gi, h.id))])])) };
+  return `<div class="proto sim ${S.simMin ? "min" : ""}"><h4 onclick="A(()=>{S.simMin=!S.simMin})" style="cursor:pointer">PROTOTYPE · simulate status ${S.simMin ? "▸" : "▾"}</h4>${rows}<pre>${esc(JSON.stringify(state, null, 1))}</pre></div>`;
+}
+function Switcher() {
+  const keys = Object.keys(VARIANTS), i = keys.indexOf(S.variant);
+  const prev = keys[(i + keys.length - 1) % keys.length], next = keys[(i + 1) % keys.length];
+  return `<div class="proto switcher"><button onclick="setVariant('${prev}')">←</button><span>${S.variant} (${VARIANTS[S.variant]})</span><button onclick="setVariant('${next}')">→</button></div>`;
+}
+
+function render() {
+  const v = { A: VariantA, B: VariantB, C: VariantC }[S.variant] || VariantA;
+  document.getElementById("root").innerHTML = `<div class="app">${v()}${Main()}</div>${Dialog()}${Sim()}${Switcher()}`;
+}
+addEventListener("keydown", (e) => {
+  if (e.target.closest("input,textarea,select,[contenteditable]")) return;
+  const keys = Object.keys(VARIANTS), i = keys.indexOf(S.variant);
+  if (e.key === "ArrowRight") setVariant(keys[(i + 1) % keys.length]);
+  if (e.key === "ArrowLeft") setVariant(keys[(i + keys.length - 1) % keys.length]);
+});
+render();
+</script>
+</body>
+</html>
