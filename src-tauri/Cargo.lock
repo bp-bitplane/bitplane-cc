@@ -325,7 +325,6 @@ dependencies = [
  "bitplane-protocol",
  "bitplane-sessiond",
  "libc",
- "notify-debouncer-mini",
  "serde",
  "serde_json",
  "similar",
@@ -339,13 +338,12 @@ dependencies = [
  "tauri-specta",
  "tempfile",
  "tokio",
- "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
 name = "bitplane-protocol"
 version = "0.1.0"
-source = "git+https://github.com/bp-bitplane/bitplane-protocol?rev=1d74f71962cffcc7e9b2e76d9db643148a8d602e#1d74f71962cffcc7e9b2e76d9db643148a8d602e"
+source = "git+https://github.com/bp-bitplane/bitplane-protocol?rev=6b0bae0fd2bc250a66672277e5071903b02b01a1#6b0bae0fd2bc250a66672277e5071903b02b01a1"
 dependencies = [
  "serde",
  "serde_json",
@@ -354,7 +352,7 @@ dependencies = [
 [[package]]
 name = "bitplane-sessiond"
 version = "0.1.0"
-source = "git+https://github.com/bp-bitplane/bitplane-sessiond?rev=2daa057aeb048191a34c655694f221e841da1361#2daa057aeb048191a34c655694f221e841da1361"
+source = "git+https://github.com/bp-bitplane/bitplane-sessiond?rev=1a806075fd89846f0170dd608e3faca0c1773bf9#1a806075fd89846f0170dd608e3faca0c1773bf9"
 dependencies = [
  "base64 0.22.1",
  "bitplane-protocol",
@@ -367,6 +365,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
  "uuid",

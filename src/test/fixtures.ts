@@ -2,6 +2,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { DEFAULT_BRANCH_INTENT } from "../create-plane/branchIntent";
 import type {
   AgentInfo,
+  CreateArgs,
   CreateInfo,
   PlaneKind,
   PlaneRow,
@@ -86,21 +87,27 @@ export function repo(name: string, status: Partial<Status> = {}): Repo {
   };
 }
 
-export function createInfo(id: string, overrides: Partial<CreateInfo> = {}): CreateInfo {
+export function createArgs(id: string): CreateArgs {
   return {
     id,
-    args: {
-      id,
-      branch: "feat/x",
-      members: [{ spec: "@api", branch: null }],
-      intent: DEFAULT_BRANCH_INTENT,
-      noFetch: false,
-      noScripts: false,
-    },
-    directory: `/planes/${id}`,
-    phase: "fetching",
+    branch: "feat/x",
+    members: [{ spec: "@api", branch: null }],
+    intent: DEFAULT_BRANCH_INTENT,
+    noFetch: false,
+    noScripts: false,
+  };
+}
+
+export function createInfo(id: string, overrides: Partial<CreateInfo> = {}): CreateInfo {
+  return {
+    job: `job-${id}`,
+    id,
+    args: createArgs(id),
+    phase: null,
     status: { kind: "running" },
     log: "",
+    startedBy: "bitplane-cc 0.1.0",
+    startedAt: 1,
     ...overrides,
   };
 }

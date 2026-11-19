@@ -15,14 +15,14 @@ use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_
 
 use crate::agents::{AgentEvent, AgentKindInfo};
 use crate::app::{App, PlanesModel, Snapshot};
-use crate::bp::{ErrorEnvelope, Project};
-use crate::create::{BranchIntent, CreateArgs, CreateEvent};
+use crate::contract::{BranchIntent, ErrorEnvelope};
 use crate::daemon::{DaemonInfo, DaemonLink, DaemonStatus};
 use crate::diff::{DiffMode, FileContents, FileDiff, FileText};
 use crate::editor;
 use crate::files::FileEntry;
 use crate::git::Repo;
-use crate::planes;
+use crate::jobs::{CreateArgs, CreateEvent, CreateLogEvent};
+use crate::planes::Project;
 use crate::sessions::{
     AgentOpen, BusyInfo, OpenOptions, OutputSink, SessionError, SessionEvent, SessionId,
     SessionInfo,
@@ -66,6 +66,9 @@ pub struct AgentKindsChanged(pub Vec<AgentKindInfo>);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct CreateChanged(pub CreateEvent);
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+pub struct CreateLog(pub CreateLogEvent);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct SourceControlChanged(pub SourceControlEvent);
@@ -118,6 +121,7 @@ pub fn builder() -> Builder<Wry> {
             AgentChanged,
             AgentKindsChanged,
             CreateChanged,
+            CreateLog,
             SourceControlChanged,
             FilesChanged,
             FileTabsChanged,
@@ -170,8 +174,7 @@ fn daemon_retry(daemon: State<'_, DaemonState>) {
 #[tauri::command]
 #[specta::specta]
 async fn refresh(app: State<'_, AppState>) -> Result<(), String> {
-    app.refresh().await;
-    Ok(())
+    app.refresh().await
 }
 
 /// Open a session in a plane's root: an agent terminal running `agent`, or
@@ -265,26 +268,27 @@ fn pty_ack(app: State<'_, AppState>, id: SessionId, bytes: u64) {
 #[tauri::command]
 #[specta::specta]
 async fn plane_create_draft(app: State<'_, AppState>, id: String) -> Result<(), String> {
-    app.create_draft(&id).await
+    app.planes.create_draft(&id).await
+}
+
+/// Starts `bp create` as a daemon job; returns the job.
+#[tauri::command]
+#[specta::specta]
+async fn plane_create(app: State<'_, AppState>, args: CreateArgs) -> Result<String, String> {
+    app.jobs.create(args).await
 }
 
 #[tauri::command]
 #[specta::specta]
-async fn plane_create(app: State<'_, AppState>, args: CreateArgs) -> Result<(), String> {
-    planes::validate_plane_id(&args.id)?;
-    app.creates.start(app.bp()?, args)
+async fn plane_create_cancel(app: State<'_, AppState>, job: String) -> Result<(), String> {
+    app.jobs.cancel(&job).await
 }
 
+/// Forgets a finished create for every client of the daemon.
 #[tauri::command]
 #[specta::specta]
-fn plane_create_cancel(app: State<'_, AppState>, id: String) {
-    app.creates.cancel(&id);
-}
-
-#[tauri::command]
-#[specta::specta]
-fn plane_create_dismiss(app: State<'_, AppState>, id: String) {
-    app.creates.dismiss(&id);
+async fn plane_create_dismiss(app: State<'_, AppState>, job: String) -> Result<(), String> {
+    app.jobs.dismiss(&job).await
 }
 
 #[tauri::command]
@@ -391,7 +395,7 @@ async fn plane_read_file(
 #[tauri::command]
 #[specta::specta]
 async fn project_list(app: State<'_, AppState>) -> Result<Vec<Project>, String> {
-    app.bp()?.projects().await.map_err(|e| e.message())
+    app.planes.projects().await
 }
 
 /// The frontend's own state (selection, collapsed planes, zoom), opaque here.
@@ -442,13 +446,14 @@ fn session_attach(
         .map_err(|e| e.to_string())
 }
 
-/// A missing root refreshes the list, which marks the plane gone.
+/// A missing root asks the daemon to re-read the list, which marks the
+/// plane gone.
 async fn refresh_if_gone(
     app: &App,
     result: Result<SessionInfo, SessionError>,
 ) -> Result<SessionInfo, SessionError> {
     if let Err(SessionError::RootMissing(_)) = &result {
-        app.refresh_list().await;
+        let _ = app.planes.refresh().await;
     }
     result
 }

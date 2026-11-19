@@ -72,3 +72,9 @@
 .envelope .remedy {
   color: var(--text);
 }
+
+.startedBy {
+  margin: 0;
+  color: var(--faint);
+  font-size: 12px;
+}

@@ -9,7 +9,11 @@ const view = () => {
 
 describe("mainView", () => {
   it("blocks on bp and git problems", () => {
-    seed({ planes: planesModel([plane("a")], { status: { kind: "bpNotFound" } }) });
+    seed({
+      planes: planesModel([plane("a")], {
+        status: { kind: "unavailable", reason: "bp not found on PATH" },
+      }),
+    });
     expect(view()).toEqual({ tabs: null, screen: "status" });
   });
 

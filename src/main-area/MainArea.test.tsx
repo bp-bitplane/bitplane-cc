@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { openFileTab, selectSession, useStore } from "../store/store";
 import {
   agent,
+  createInfo,
   mockBackend,
   plane,
   planesModel,
@@ -140,5 +141,41 @@ describe("session daemon banners", () => {
     expect(alerts[0]).toHaveTextContent(
       "plane unavailable: bp isn't on your PATH; install bitplane-cli",
     );
+  });
+
+  it("shows a running create's phase, log and starter, and cancels its job", async () => {
+    const backend = mockBackend();
+    seed({
+      planes: planesModel([plane("feat", "creating")]),
+      creates: {
+        feat: createInfo("feat", {
+          phase: "addingWorktrees",
+          log: "fetching api",
+          startedBy: "other-client 2.0.0",
+        }),
+      },
+      selectedPlaneId: "feat",
+    });
+    render(<MainArea />);
+    expect(screen.getByRole("log")).toHaveTextContent("fetching api");
+    expect(screen.getByText("Adding worktrees")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByText("Started by other-client 2.0.0")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(backend.called("plane_create_cancel")[0]?.args).toEqual({ job: "job-feat" });
+  });
+
+  it("explains a create the daemon restarted under, and dismisses it", async () => {
+    const backend = mockBackend();
+    seed({
+      planes: planesModel([]),
+      creates: {
+        feat: createInfo("feat", { status: { kind: "failed", reason: "daemon restarted" } }),
+      },
+      selectedPlaneId: "feat",
+    });
+    render(<MainArea />);
+    expect(screen.getByText(/daemon restarted/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(backend.called("plane_create_dismiss")[0]?.args).toEqual({ job: "job-feat" });
   });
 });
