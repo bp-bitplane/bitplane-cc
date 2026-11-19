@@ -1,21 +1,28 @@
-//! The plane list: resolving the planes directory, scanning for drafts,
-//! merging everything into sidebar rows, and the watcher (spec §5.1, §5.2, §6.2).
+//! The sidebar's planes and drafts, mirrored from the daemon's plane module
+//! (sessiond ADR 0033): `plane.list` on every connection, then every
+//! `plane.changed`; refresh, projects and drafts go through it too.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{Debouncer, new_debouncer};
+use bitplane_protocol::hello::Capability;
+use bitplane_protocol::plane::{
+    PlaneCreateDraftParams, PlaneProjectsResult, PlanesModel as DaemonModel,
+};
+use bitplane_protocol::{ErrorCode, Frame, Notification, method};
+use bitplane_sessiond::client::Handle;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use specta::Type;
+use tokio::sync::watch;
 
-use crate::env::EnvMap;
+use crate::contract::Envelope;
+use crate::daemon::{self, DaemonLink, Subscriber};
 
-pub const PLANE_FILE: &str = "plane.toml";
-pub const BITPLANE_DIR: &str = ".bitplane";
-pub const DEBOUNCE: Duration = Duration::from_millis(250);
+/// The daemon's module name for planes in `hello`.
+pub const MODULE: &str = "plane";
 
 /// One sidebar row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -24,7 +31,7 @@ pub struct PlaneRow {
     pub id: String,
     pub directory: String,
     pub kind: PlaneKind,
-    /// Finding tags from `bp list`; empty for drafts and planes being created.
+    /// Finding tags from `bp list`; empty unless `kind` is `Plane`.
     pub findings: Vec<String>,
     /// Member specs from `bp list`; empty unless `kind` is `Plane`.
     pub members: Vec<String>,
@@ -39,338 +46,332 @@ pub enum PlaneKind {
     Gone,
 }
 
-/// Where a row came from, before merging.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Source {
-    pub id: String,
-    pub directory: PathBuf,
-    pub findings: Vec<String>,
-    pub members: Vec<String>,
-    /// The Members' worktrees, relative to `directory`.
-    pub member_paths: Vec<PathBuf>,
+/// Whether the plane list can be shown, and if not, why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AppStatus {
+    Loading,
+    Ready,
+    /// The daemon's plane module is off; `reason` names the fix.
+    #[serde(rename_all = "camelCase")]
+    Unavailable {
+        reason: String,
+    },
+    /// git missing or older than 2.36.
+    #[serde(rename_all = "camelCase")]
+    GitMissing {
+        message: String,
+    },
+    /// `bp list` failed for another reason.
+    #[serde(rename_all = "camelCase")]
+    ListFailed {
+        message: String,
+    },
 }
 
-impl Source {
-    pub fn new(id: impl Into<String>, directory: impl Into<PathBuf>) -> Self {
-        Source {
-            id: id.into(),
-            directory: directory.into(),
-            findings: Vec::new(),
-            members: Vec::new(),
-            member_paths: Vec::new(),
+/// A plane being created, which owns its row until it ends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Creating {
+    pub id: String,
+    pub directory: Option<String>,
+}
+
+pub struct Planes {
+    me: Weak<Planes>,
+    on_change: Arc<dyn Fn() + Send + Sync>,
+    state: Mutex<State>,
+    ready: watch::Sender<bool>,
+}
+
+#[derive(Default)]
+struct State {
+    handle: Option<Handle>,
+    model: Option<DaemonModel>,
+    connection: u64,
+    /// Bumped per `plane.changed`; a list reply older than one is dropped.
+    changes: u64,
+}
+
+impl Planes {
+    /// Follows `link` from its next connection on; `on_change` runs after
+    /// every new model.
+    pub fn new(link: &DaemonLink, on_change: Arc<dyn Fn() + Send + Sync>) -> Arc<Self> {
+        let planes = Arc::new_cyclic(|me| Planes {
+            me: me.clone(),
+            on_change,
+            state: Mutex::default(),
+            ready: watch::Sender::new(false),
+        });
+        link.subscribe(Arc::new(Subscription(Arc::downgrade(&planes))));
+        planes
+    }
+
+    /// Resolves once the first `plane.list` answered, or after `timeout`.
+    pub async fn ready(&self, timeout: Duration) {
+        let mut ready = self.ready.subscribe();
+        let _ = tokio::time::timeout(timeout, ready.wait_for(|ready| *ready)).await;
+    }
+
+    /// The daemon's latest model, gone rows and all.
+    pub fn model(&self) -> Option<DaemonModel> {
+        self.state.lock().unwrap().model.clone()
+    }
+
+    /// Re-read now; the answer arrives as `plane.changed`.
+    pub async fn refresh(&self) -> Result<(), String> {
+        self.call::<Value>(method::PLANE_REFRESH, json!({}))
+            .await
+            .map(drop)
+            .map_err(|error| error.message)
+    }
+
+    pub async fn projects(&self) -> Result<Vec<Project>, String> {
+        let result: PlaneProjectsResult = self
+            .call(method::PLANE_PROJECTS, json!({}))
+            .await
+            .map_err(|error| error.message)?;
+        Ok(result
+            .projects
+            .into_iter()
+            .map(|project| Project {
+                name: project.name,
+                source_repo_present: project.source_repo_present,
+            })
+            .collect())
+    }
+
+    /// An empty folder in the planes directory; the row follows as `plane.changed`.
+    pub async fn create_draft(&self, id: &str) -> Result<(), String> {
+        let params = PlaneCreateDraftParams { id: id.into() };
+        match self.call::<Value>(method::PLANE_CREATE_DRAFT, params).await {
+            Ok(_) => Ok(()),
+            Err(error) if error.code == Some(ErrorCode::PlaneExists) => {
+                Err(format!("{id} already exists"))
+            }
+            Err(error) => Err(error.message),
         }
     }
-}
 
-/// bp's plane id rules: `[a-z0-9][a-z0-9._-]*`, at most 64 characters, and
-/// not starting with the reserved `bp-`.
-pub fn validate_plane_id(id: &str) -> Result<(), String> {
-    let mut chars = id.chars();
-    let first_ok = chars
-        .next()
-        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
-    let rest_ok =
-        chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'));
-    if id.is_empty() {
-        Err("Enter an id".into())
-    } else if !first_ok || !rest_ok {
-        Err(
-            "Use lowercase letters, digits, '.', '_' and '-', starting with a letter or digit"
-                .into(),
-        )
-    } else if id.len() > 64 {
-        Err("At most 64 characters".into())
-    } else if id.starts_with("bp-") {
-        Err("Ids starting with 'bp-' are reserved".into())
-    } else {
-        Ok(())
+    async fn call<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        params: impl Serialize,
+    ) -> Result<T, daemon::CallError> {
+        let handle = self.state.lock().unwrap().handle.clone();
+        daemon::call(handle.as_ref(), method, params).await
+    }
+
+    fn connected(&self, handle: Handle) {
+        let (connection, changes) = {
+            let mut state = self.state.lock().unwrap();
+            state.handle = Some(handle.clone());
+            state.connection += 1;
+            (state.connection, state.changes)
+        };
+        let me = self.me.clone();
+        tauri::async_runtime::spawn(async move {
+            let listed = daemon::call::<DaemonModel>(Some(&handle), method::PLANE_LIST, json!({}))
+                .await
+                .ok();
+            let Some(planes) = me.upgrade() else { return };
+            {
+                let mut state = planes.state.lock().unwrap();
+                if state.connection != connection {
+                    return;
+                }
+                if let Some(model) = listed.filter(|_| state.changes == changes) {
+                    state.model = Some(model);
+                }
+            }
+            planes.ready.send_replace(true);
+            (planes.on_change)();
+        });
+    }
+
+    fn event(&self, event: Notification) {
+        if event.method != method::PLANE_CHANGED {
+            return;
+        }
+        let Some(model) = event
+            .params
+            .and_then(|params| serde_json::from_value::<DaemonModel>(params).ok())
+        else {
+            return;
+        };
+        {
+            let mut state = self.state.lock().unwrap();
+            state.changes += 1;
+            state.model = Some(model);
+        }
+        self.ready.send_replace(true);
+        (self.on_change)();
     }
 }
 
-/// Resolve the planes directory the way bp does: `$BITPLANE_PLANES_DIR`, then
-/// `planes_dir` in bp's config file, then `~/planes`.
-pub fn resolve_planes_dir(env: &EnvMap) -> PathBuf {
-    let home = env.get("HOME").map(PathBuf::from).unwrap_or_default();
-    if let Some(dir) = env.get("BITPLANE_PLANES_DIR").filter(|d| !d.is_empty()) {
-        return expand_tilde(dir, &home);
-    }
-    if let Some(dir) = config_planes_dir(&config_path(env, &home)) {
-        return expand_tilde(&dir, &home);
-    }
-    home.join("planes")
+/// One project from `plane.projects`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    pub name: String,
+    pub source_repo_present: bool,
 }
 
-/// Every subfolder without a plane file, skipping dot-folders. A missing
-/// planes directory has no drafts.
-pub fn scan_drafts(planes_dir: &Path) -> Vec<Source> {
-    let Ok(entries) = std::fs::read_dir(planes_dir) else {
-        return Vec::new();
-    };
-    let mut drafts: Vec<Source> = entries
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
-        .filter_map(|entry| {
-            let id = entry.file_name().into_string().ok()?;
-            let path = entry.path();
-            (!id.starts_with('.') && !path.join(PLANE_FILE).exists()).then(|| Source::new(id, path))
+/// The sidebar's rows: the daemon's, with a plane being created in place of
+/// what `bp list` says about it (its findings are noise until it ends), and
+/// gone rows only while one of cc's sessions is still in them: the daemon
+/// keeps them until it restarts.
+pub fn rows(
+    model: &DaemonModel,
+    creating: &[Creating],
+    with_sessions: &BTreeSet<String>,
+) -> Vec<PlaneRow> {
+    use bitplane_protocol::plane::PlaneKind as Kind;
+    let mut rows: Vec<PlaneRow> = model
+        .planes
+        .iter()
+        .filter(|row| !creating.iter().any(|c| c.id == row.id))
+        .filter_map(|row| {
+            let kind = match row.kind {
+                Kind::Plane => PlaneKind::Plane,
+                Kind::Draft => PlaneKind::Draft,
+                Kind::Gone if with_sessions.contains(&row.id) => PlaneKind::Gone,
+                Kind::Gone | Kind::Unknown => return None,
+            };
+            Some(PlaneRow {
+                id: row.id.clone(),
+                directory: row.directory.clone(),
+                kind,
+                findings: row.findings.clone(),
+                members: row.members.iter().map(|m| m.member.clone()).collect(),
+            })
         })
         .collect();
-    drafts.sort_by(|a, b| a.id.cmp(&b.id));
-    drafts
-}
-
-/// Merge every source into alphabetically sorted rows.
-///
-/// A plane being created wins over what `bp list` says about it (its findings
-/// are noise until the create finishes). A plane that still has sessions but
-/// appears nowhere else is gone.
-pub fn merge_rows(
-    listed: &[Source],
-    drafts: &[Source],
-    creating: &[Source],
-    with_sessions: &[Source],
-) -> Vec<PlaneRow> {
-    let mut rows: BTreeMap<String, PlaneRow> = BTreeMap::new();
-    let mut put = |source: &Source, kind: PlaneKind| {
-        let listed = kind == PlaneKind::Plane;
-        rows.entry(source.id.clone()).or_insert_with(|| PlaneRow {
-            id: source.id.clone(),
-            directory: source.directory.to_string_lossy().into_owned(),
-            kind,
-            findings: if listed {
-                source.findings.clone()
-            } else {
-                Vec::new()
-            },
-            members: if listed {
-                source.members.clone()
-            } else {
-                Vec::new()
-            },
+    for create in creating {
+        if rows.iter().any(|row| row.id == create.id) {
+            continue;
+        }
+        let directory = create.directory.clone().unwrap_or_else(|| {
+            PathBuf::from(&model.planes_dir)
+                .join(&create.id)
+                .to_string_lossy()
+                .into_owned()
         });
+        rows.push(PlaneRow {
+            id: create.id.clone(),
+            directory,
+            kind: PlaneKind::Creating,
+            findings: Vec::new(),
+            members: Vec::new(),
+        });
+    }
+    rows.sort_by(|a, b| a.id.cmp(&b.id));
+    rows
+}
+
+/// What the main area shows instead of planes, from the plane capability in
+/// `hello` and the last `bp list`.
+pub fn status(capability: Option<&Capability>, model: Option<&DaemonModel>) -> AppStatus {
+    if let Some(capability) = capability.filter(|c| !c.available) {
+        return AppStatus::Unavailable {
+            reason: capability
+                .reason
+                .clone()
+                .unwrap_or_else(|| "the daemon gave no reason".into()),
+        };
+    }
+    let Some(model) = model.filter(|m| m.refreshed_at.is_some() || m.list_error.is_some()) else {
+        return AppStatus::Loading;
     };
-    for source in creating {
-        put(source, PlaneKind::Creating);
-    }
-    for source in listed {
-        put(source, PlaneKind::Plane);
-    }
-    for source in drafts {
-        put(source, PlaneKind::Draft);
-    }
-    for source in with_sessions {
-        put(source, PlaneKind::Gone);
-    }
-    rows.into_values().collect()
-}
-
-/// Paths the watcher observes, none recursively: the planes directory (or its
-/// parent while it doesn't exist), and each plane's root and `.bitplane/`.
-pub fn watch_paths(planes_dir: &Path, plane_dirs: &[PathBuf]) -> BTreeSet<PathBuf> {
-    let mut paths = BTreeSet::new();
-    if planes_dir.is_dir() {
-        paths.insert(planes_dir.to_path_buf());
-    } else if let Some(parent) = planes_dir.parent().filter(|p| p.is_dir()) {
-        paths.insert(parent.to_path_buf());
-    }
-    for dir in plane_dirs {
-        for path in [dir.clone(), dir.join(BITPLANE_DIR)] {
-            if path.is_dir() {
-                paths.insert(path);
+    match &model.list_error {
+        None => AppStatus::Ready,
+        Some(error) => {
+            let envelope = error
+                .envelope
+                .clone()
+                .and_then(|e| serde_json::from_value::<Envelope>(e).ok());
+            match envelope {
+                Some(envelope) if envelope.error == "git_missing" => AppStatus::GitMissing {
+                    message: envelope.message,
+                },
+                _ => AppStatus::ListFailed {
+                    message: error.message.clone(),
+                },
             }
         }
     }
-    paths
 }
 
-/// A debounced, non-recursive watcher over a changing set of paths.
-pub struct Watcher {
-    debouncer: Debouncer<RecommendedWatcher>,
-    watched: BTreeSet<PathBuf>,
-}
+/// What `Planes` subscribes with; weak, so the link doesn't keep it alive.
+struct Subscription(Weak<Planes>);
 
-impl Watcher {
-    /// `on_change` runs on the debouncer's thread after each debounced batch.
-    pub fn new(on_change: Arc<dyn Fn() + Send + Sync>) -> Result<Self, String> {
-        let debouncer = new_debouncer(
-            DEBOUNCE,
-            move |result: notify_debouncer_mini::DebounceEventResult| {
-                if result.is_ok_and(|events| !events.is_empty()) {
-                    on_change();
-                }
-            },
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(Watcher {
-            debouncer,
-            watched: BTreeSet::new(),
-        })
-    }
-
-    /// Watch exactly `paths`, adding and removing the difference.
-    pub fn set_paths(&mut self, paths: BTreeSet<PathBuf>) {
-        let watcher = self.debouncer.watcher();
-        for gone in self.watched.difference(&paths) {
-            let _ = watcher.unwatch(gone);
+impl Subscriber for Subscription {
+    fn connected(&self, handle: Handle) {
+        if let Some(planes) = self.0.upgrade() {
+            planes.connected(handle);
         }
-        let mut watched = BTreeSet::new();
-        for path in paths {
-            let ok = self.watched.contains(&path)
-                || watcher.watch(&path, RecursiveMode::NonRecursive).is_ok();
-            if ok {
-                watched.insert(path);
-            }
+    }
+
+    fn event(&self, event: Notification) {
+        if let Some(planes) = self.0.upgrade() {
+            planes.event(event);
         }
-        self.watched = watched;
     }
-}
 
-fn config_path(env: &EnvMap, home: &Path) -> PathBuf {
-    if let Some(path) = env.get("BITPLANE_CONFIG").filter(|p| !p.is_empty()) {
-        return expand_tilde(path, home);
-    }
-    let config_home = env
-        .get("XDG_CONFIG_HOME")
-        .filter(|p| !p.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(".config"));
-    config_home.join("bitplane").join("config.toml")
-}
-
-fn config_planes_dir(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let table: toml::Table = text.parse().ok()?;
-    table.get("planes_dir")?.as_str().map(str::to_owned)
-}
-
-fn expand_tilde(path: &str, home: &Path) -> PathBuf {
-    match path.strip_prefix('~') {
-        Some("") => home.to_path_buf(),
-        Some(rest) if rest.starts_with(std::path::MAIN_SEPARATOR) => {
-            home.join(&rest[std::path::MAIN_SEPARATOR.len_utf8()..])
-        }
-        _ => PathBuf::from(path),
-    }
+    fn frame(&self, _frame: Frame) {}
 }
 
 #[cfg(test)]
 mod tests {
+    use bitplane_protocol::plane::{
+        PlaneKind as Kind, PlaneListError, PlaneMember, PlaneRow as Row,
+    };
+
     use super::*;
 
-    fn env(pairs: &[(&str, &str)]) -> EnvMap {
-        pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect()
-    }
-
-    #[test]
-    fn validates_plane_ids() {
-        for ok in ["a", "0", "feat-x", "v1.2_rc", &"a".repeat(64)] {
-            assert_eq!(validate_plane_id(ok), Ok(()), "{ok}");
-        }
-        for bad in ["", "-a", ".a", "A", "a/b", "a b", "bp-x", &"a".repeat(65)] {
-            assert!(validate_plane_id(bad).is_err(), "{bad}");
+    fn row(id: &str, kind: Kind) -> Row {
+        Row {
+            id: id.into(),
+            directory: format!("/p/{id}"),
+            kind,
+            members: vec![PlaneMember {
+                member: "@api".into(),
+                path: format!("/p/{id}/api"),
+            }],
+            findings: vec!["create_never_completed".into()],
         }
     }
 
-    #[test]
-    fn env_var_wins() {
-        let env = env(&[
-            ("HOME", "/home/u"),
-            ("BITPLANE_PLANES_DIR", "~/work/planes"),
-        ]);
-        assert_eq!(
-            resolve_planes_dir(&env),
-            PathBuf::from("/home/u/work/planes")
-        );
-    }
-
-    #[test]
-    fn empty_env_var_is_ignored() {
-        let env = env(&[("HOME", "/nonexistent-home"), ("BITPLANE_PLANES_DIR", "")]);
-        assert_eq!(
-            resolve_planes_dir(&env),
-            PathBuf::from("/nonexistent-home/planes")
-        );
-    }
-
-    #[test]
-    fn config_file_from_bitplane_config() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = dir.path().join("custom.toml");
-        std::fs::write(&config, "version = 1\nplanes_dir = \"~/elsewhere\"\n").unwrap();
-        let env = env(&[
-            ("HOME", "/home/u"),
-            ("BITPLANE_CONFIG", config.to_str().unwrap()),
-        ]);
-        assert_eq!(resolve_planes_dir(&env), PathBuf::from("/home/u/elsewhere"));
-    }
-
-    #[test]
-    fn config_file_under_xdg_config_home() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("bitplane")).unwrap();
-        std::fs::write(
-            dir.path().join("bitplane/config.toml"),
-            "planes_dir = \"/abs/planes\"\n",
-        )
-        .unwrap();
-        let env = env(&[
-            ("HOME", "/home/u"),
-            ("XDG_CONFIG_HOME", dir.path().to_str().unwrap()),
-        ]);
-        assert_eq!(resolve_planes_dir(&env), PathBuf::from("/abs/planes"));
-    }
-
-    #[test]
-    fn config_under_default_config_home() {
-        let home = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(home.path().join(".config/bitplane")).unwrap();
-        std::fs::write(
-            home.path().join(".config/bitplane/config.toml"),
-            "planes_dir = \"~\"\n",
-        )
-        .unwrap();
-        let env = env(&[("HOME", home.path().to_str().unwrap())]);
-        assert_eq!(resolve_planes_dir(&env), home.path());
-    }
-
-    #[test]
-    fn defaults_to_home_planes() {
-        let home = tempfile::tempdir().unwrap();
-        let env = env(&[("HOME", home.path().to_str().unwrap())]);
-        assert_eq!(resolve_planes_dir(&env), home.path().join("planes"));
-    }
-
-    #[test]
-    fn drafts_are_folders_without_a_plane_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        for name in ["real", "draft", ".hidden", "stray"] {
-            std::fs::create_dir(root.join(name)).unwrap();
+    fn model(rows: Vec<Row>) -> DaemonModel {
+        DaemonModel {
+            planes_dir: "/p".into(),
+            planes_dir_exists: true,
+            refreshed_at: Some(1),
+            list_error: None,
+            planes: rows,
         }
-        std::fs::write(root.join("real").join(PLANE_FILE), "").unwrap();
-        std::fs::write(root.join("file.txt"), "").unwrap();
-        let ids: Vec<_> = scan_drafts(root).into_iter().map(|d| d.id).collect();
-        assert_eq!(ids, ["draft", "stray"]);
-        assert!(scan_drafts(&root.join("missing")).is_empty());
     }
 
     #[test]
-    fn merges_sorted_with_precedence() {
-        let mut listed = Source::new("beta", "/p/beta");
-        listed.findings = vec!["member_worktree_missing".into()];
-        listed.members = vec!["@api".into()];
-        let mut creating_listed = Source::new("new", "/p/new");
-        creating_listed.findings = vec!["create_never_completed".into()];
-        creating_listed.members = vec!["@api".into()];
-        let rows = merge_rows(
-            &[listed, creating_listed],
-            &[Source::new("alpha", "/p/alpha")],
-            &[Source::new("new", "/p/new")],
-            &[Source::new("beta", "/p/beta"), Source::new("old", "/p/old")],
-        );
+    fn gone_rows_show_only_while_cc_has_sessions_in_them() {
+        let model = model(vec![
+            row("alpha", Kind::Draft),
+            row("beta", Kind::Plane),
+            row("new", Kind::Plane),
+            row("old", Kind::Gone),
+            row("older", Kind::Gone),
+            row("odd", Kind::Unknown),
+        ]);
+        let creating = [
+            Creating {
+                id: "new".into(),
+                directory: None,
+            },
+            Creating {
+                id: "next".into(),
+                directory: Some("/elsewhere/next".into()),
+            },
+        ];
+        let rows = rows(&model, &creating, &BTreeSet::from(["old".to_string()]));
         let summary: Vec<_> = rows
             .iter()
             .map(|r| (r.id.as_str(), r.kind, r.findings.len(), r.members.len()))
@@ -378,37 +379,61 @@ mod tests {
         assert_eq!(
             summary,
             [
-                ("alpha", PlaneKind::Draft, 0, 0),
+                ("alpha", PlaneKind::Draft, 1, 1),
                 ("beta", PlaneKind::Plane, 1, 1),
                 ("new", PlaneKind::Creating, 0, 0),
-                ("old", PlaneKind::Gone, 0, 0),
+                ("next", PlaneKind::Creating, 0, 0),
+                ("old", PlaneKind::Gone, 1, 1),
             ]
         );
+        assert_eq!(rows[2].directory, "/p/new");
+        assert_eq!(rows[3].directory, "/elsewhere/next");
+        assert_eq!(rows[1].members, ["@api"]);
     }
 
     #[test]
-    fn watches_parent_while_planes_dir_is_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        let planes = dir.path().join("planes");
+    fn status_follows_the_capability_and_the_last_list() {
+        let off = Capability {
+            module: MODULE.into(),
+            available: false,
+            reason: Some("bp not found on PATH".into()),
+            info: None,
+        };
         assert_eq!(
-            watch_paths(&planes, &[]),
-            BTreeSet::from([dir.path().to_path_buf()])
+            status(Some(&off), None),
+            AppStatus::Unavailable {
+                reason: "bp not found on PATH".into()
+            }
         );
+        assert_eq!(status(None, None), AppStatus::Loading);
+        let mut listed = model(vec![]);
+        listed.refreshed_at = None;
+        assert_eq!(status(None, Some(&listed)), AppStatus::Loading);
+        listed.refreshed_at = Some(1);
+        assert_eq!(status(None, Some(&listed)), AppStatus::Ready);
 
-        std::fs::create_dir_all(planes.join("a/.bitplane")).unwrap();
-        std::fs::create_dir_all(planes.join("b")).unwrap();
-        let paths = watch_paths(
-            &planes,
-            &[planes.join("a"), planes.join("b"), planes.join("c")],
-        );
+        listed.list_error = Some(PlaneListError {
+            message: "git is too old".into(),
+            envelope: Some(serde_json::json!({
+                "error": "git_missing", "code": 4, "message": "git is too old",
+                "problems": [], "remedy": null
+            })),
+        });
         assert_eq!(
-            paths,
-            BTreeSet::from([
-                planes.clone(),
-                planes.join("a"),
-                planes.join("a/.bitplane"),
-                planes.join("b"),
-            ])
+            status(None, Some(&listed)),
+            AppStatus::GitMissing {
+                message: "git is too old".into()
+            }
+        );
+        listed.list_error = Some(PlaneListError {
+            message: "bp could not be run".into(),
+            envelope: None,
+        });
+        assert_eq!(
+            status(None, Some(&listed)),
+            AppStatus::ListFailed {
+                message: "bp could not be run".into()
+            }
         );
     }
 }

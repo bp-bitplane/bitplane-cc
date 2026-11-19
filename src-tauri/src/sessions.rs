@@ -21,7 +21,6 @@ use specta::Type;
 use tokio::sync::watch;
 
 use crate::daemon::{DaemonLink, Subscriber};
-use crate::planes::Source;
 
 /// A tab's handle, per launch; `SessionInfo::key` is the daemon's id.
 pub type SessionId = u32;
@@ -223,18 +222,6 @@ impl Sessions {
     pub fn list(&self) -> Vec<SessionInfo> {
         let state = self.state.lock().unwrap();
         state.tabs.values().map(|tab| tab.info.clone()).collect()
-    }
-
-    /// The planes that have sessions, for merging gone planes into the sidebar.
-    pub fn plane_sources(&self) -> Vec<Source> {
-        let state = self.state.lock().unwrap();
-        let mut sources: BTreeMap<&str, Source> = BTreeMap::new();
-        for tab in state.tabs.values() {
-            sources
-                .entry(&tab.info.plane_id)
-                .or_insert_with(|| Source::new(&tab.info.plane_id, &tab.root));
-        }
-        sources.into_values().collect()
     }
 
     /// Open a session in `plane_dir`; a missing root opens none.

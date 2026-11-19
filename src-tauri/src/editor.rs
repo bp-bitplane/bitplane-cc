@@ -4,7 +4,6 @@ use std::path::Path;
 
 use tokio::process::Command;
 
-use crate::bp;
 use crate::env::EnvMap;
 use crate::files;
 
@@ -31,7 +30,7 @@ pub async fn open_file_in_vscode(
 }
 
 async fn run_code(args: &[&std::ffi::OsStr], dir: &Path, env: &EnvMap) -> Result<(), String> {
-    let program = bp::find_on_path("code", env.get("PATH").map(String::as_str)).ok_or(
+    let program = find_on_path("code", env.get("PATH").map(String::as_str)).ok_or(
         "VS Code's `code` command isn't on your PATH. In VS Code, run \"Shell Command: Install 'code' command in PATH\".",
     )?;
     let output = Command::new(&program)
@@ -51,6 +50,20 @@ async fn run_code(args: &[&std::ffi::OsStr], dir: &Path, env: &EnvMap) -> Result
         "" => format!("`code` exited with {}", output.status),
         message => message.to_string(),
     })
+}
+
+/// Find `name` on a `PATH` value.
+fn find_on_path(name: &str, path_var: Option<&str>) -> Option<std::path::PathBuf> {
+    std::env::split_paths(path_var?)
+        .map(|dir| dir.join(name))
+        .find(|candidate| is_executable(candidate))
+}
+
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

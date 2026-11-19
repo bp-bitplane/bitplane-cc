@@ -10,10 +10,12 @@ use std::future::Future;
 use std::pin::pin;
 use std::task::Poll;
 
-use bitplane_protocol::{Frame, HelloResult, Notification};
+use bitplane_protocol::hello::Capability;
+use bitplane_protocol::{ErrorCode, Frame, HelloResult, Notification};
 use bitplane_sessiond::autostart::{StartError, connect_or_start};
-use bitplane_sessiond::client::{Handle, Streams};
+use bitplane_sessiond::client::{ClientError, Handle, Streams};
 use bitplane_sessiond::paths::Dirs;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::Notify;
@@ -134,6 +136,17 @@ impl DaemonLink {
         self.hello.lock().unwrap().clone()
     }
 
+    /// A module's entry in the last `hello` reply.
+    pub fn capability(&self, module: &str) -> Option<Capability> {
+        let hello = self.hello.lock().unwrap();
+        hello
+            .as_ref()?
+            .capabilities
+            .iter()
+            .find(|capability| capability.module == module)
+            .cloned()
+    }
+
     pub fn info(&self) -> DaemonInfo {
         let dirs = self.dirs.as_ref().ok();
         let pid = dirs
@@ -228,6 +241,39 @@ impl DaemonLink {
             drop(current);
             (self.on_change)(status);
         }
+    }
+}
+
+/// A failed daemon call: the protocol code when the daemon gave one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallError {
+    pub code: Option<ErrorCode>,
+    pub message: String,
+}
+
+/// One request on `handle`, `None` while cc isn't connected.
+pub async fn call<T: DeserializeOwned>(
+    handle: Option<&Handle>,
+    method: &str,
+    params: impl Serialize,
+) -> Result<T, CallError> {
+    let failed = |message: String| CallError {
+        code: None,
+        message,
+    };
+    let Some(handle) = handle else {
+        return Err(failed("the session daemon isn't connected".into()));
+    };
+    let params = serde_json::to_value(params).expect("protocol types serialize");
+    match handle.call(method, Some(params)).await {
+        Ok(value) => serde_json::from_value(value)
+            .map_err(|error| failed(format!("unexpected reply to {method}: {error}"))),
+        Err(ClientError::Rpc(error)) => Err(CallError {
+            code: error.protocol_code(),
+            message: error.message,
+        }),
+        Err(ClientError::Closed) => Err(failed("the session daemon isn't connected".into())),
+        Err(error) => Err(failed(error.to_string())),
     }
 }
 

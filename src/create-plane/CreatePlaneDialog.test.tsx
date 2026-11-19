@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Dialogs } from "../dialogs/Dialogs";
 import { openDuplicateDialog, useStore } from "../store/store";
-import { createInfo, flush, mockBackend, plane, planesModel, seed } from "../test/fixtures";
+import { createArgs, flush, mockBackend, plane, planesModel, seed } from "../test/fixtures";
 import { CreatePlaneDialog } from "./CreatePlaneDialog";
 
 const projects = [
@@ -114,7 +114,7 @@ describe("CreatePlaneDialog", () => {
 
     it("reopens with the entries and bp's explanation", async () => {
       mockBackend({ project_list: () => projects });
-      const { args } = createInfo("feat-x");
+      const args = createArgs("feat-x");
       render(
         <CreatePlaneDialog
           initial={{ ...args, members: [{ spec: "@sos/api", branch: "dev" }] }}

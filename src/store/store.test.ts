@@ -1,6 +1,7 @@
 import { emit } from "@tauri-apps/api/event";
 import {
   agent,
+  createArgs,
   createInfo,
   flush,
   mockBackend,
@@ -13,7 +14,9 @@ import {
 import { activeFileTab, activeSession, fileTabsOf, sessionsOf, tabLabel } from "./selectors";
 import {
   applyCreate,
+  applyCreateLog,
   applySession,
+  cancelCreate,
   closeActiveTab,
   closeFileTab,
   closeSession,
@@ -21,6 +24,7 @@ import {
   createPlane,
   cyclePlane,
   cycleTab,
+  dismissCreate,
   followGitWatch,
   goToPlane,
   goToTab,
@@ -197,7 +201,7 @@ describe("creating a plane", () => {
   it("selects the plane without opening a shell in it", async () => {
     const backend = mockBackend();
     seed({ planes: planesModel([]) });
-    await createPlane(createInfo("feat").args);
+    await createPlane(createArgs("feat"));
     await flush();
     expect(state().selectedPlaneId).toBe("feat");
     expect(backend.called("session_open")).toHaveLength(0);
@@ -450,9 +454,13 @@ describe("create outcomes", () => {
   it("selects the new plane and opens the launcher on success", async () => {
     const backend = mockBackend();
     seed({ creates: { feat: createInfo("feat") } });
-    applyCreate({ id: "feat", create: createInfo("feat", { status: { kind: "succeeded" } }) });
+    applyCreate({
+      job: "job-feat",
+      id: "feat",
+      create: createInfo("feat", { status: { kind: "succeeded" } }),
+    });
     await flush();
-    expect(backend.called("plane_create_dismiss")[0]?.args).toEqual({ id: "feat" });
+    expect(backend.called("plane_create_dismiss")[0]?.args).toEqual({ job: "job-feat" });
     expect(state().selectedPlaneId).toBe("feat");
     expect(state().dialog).toEqual({ kind: "launcher", planeId: "feat" });
   });
@@ -460,7 +468,11 @@ describe("create outcomes", () => {
   it("keeps the log and shows the banner when a script failed", async () => {
     const backend = mockBackend();
     seed({ creates: { feat: createInfo("feat") } });
-    applyCreate({ id: "feat", create: createInfo("feat", { status: { kind: "scriptFailed" } }) });
+    applyCreate({
+      job: "job-feat",
+      id: "feat",
+      create: createInfo("feat", { status: { kind: "scriptFailed" } }),
+    });
     await flush();
     expect(state().scriptFailed.feat).toBe(true);
     expect(backend.called("plane_create_dismiss")).toHaveLength(0);
@@ -478,6 +490,7 @@ describe("create outcomes", () => {
     };
     seed({ creates: { feat: createInfo("feat") }, selectedPlaneId: "feat" });
     applyCreate({
+      job: "job-feat",
       id: "feat",
       create: createInfo("feat", {
         status: { kind: "nothingCreated", envelope, retryable: false },
@@ -488,7 +501,7 @@ describe("create outcomes", () => {
     expect(state().selectedPlaneId).toBeNull();
     expect(state().dialog).toEqual({
       kind: "create",
-      initial: createInfo("feat").args,
+      initial: createArgs("feat"),
       failure: { envelope, log: "git said no", retryable: false },
       duplicateOf: null,
     });
@@ -497,9 +510,10 @@ describe("create outcomes", () => {
   it("reopens a failed duplicate still duplicating its source", async () => {
     mockBackend();
     seed({ planes: planesModel([]) });
-    await createPlane(createInfo("feat").args, "alpha");
-    applyCreate({ id: "feat", create: createInfo("feat") });
+    await createPlane(createArgs("feat"), "alpha");
+    applyCreate({ job: "job-feat", id: "feat", create: createInfo("feat") });
     applyCreate({
+      job: "job-feat",
       id: "feat",
       create: createInfo("feat", {
         status: { kind: "nothingCreated", envelope: null, retryable: true },
@@ -513,9 +527,93 @@ describe("create outcomes", () => {
   it("reacts only to the transition out of running", async () => {
     const backend = mockBackend();
     seed({ creates: { feat: createInfo("feat", { status: { kind: "succeeded" } }) } });
-    applyCreate({ id: "feat", create: createInfo("feat", { status: { kind: "succeeded" } }) });
+    applyCreate({
+      job: "job-feat",
+      id: "feat",
+      create: createInfo("feat", { status: { kind: "succeeded" } }),
+    });
     await flush();
     expect(backend.calls).toHaveLength(0);
+  });
+});
+
+describe("creates from the daemon's jobs", () => {
+  it("appends live log lines to the plane's current job only", () => {
+    seed({ creates: { feat: createInfo("feat", { log: "fetching" }) } });
+    applyCreateLog({ job: "job-feat", id: "feat", text: "adding\nworktrees" });
+    applyCreateLog({ job: "job-old", id: "feat", text: "stale" });
+    expect(state().creates.feat?.log).toBe("fetching\nadding\nworktrees");
+  });
+
+  it("keeps the newest job when a plane has several", () => {
+    const current = createInfo("feat", { job: "j2", startedAt: 2 });
+    seed({ creates: { feat: current } });
+    applyCreate({ job: "j1", id: "feat", create: createInfo("feat", { job: "j1", startedAt: 1 }) });
+    applyCreate({ job: "j1", id: "feat", create: null });
+    expect(state().creates.feat).toEqual(current);
+    applyCreate({ job: "j2", id: "feat", create: null });
+    expect(state().creates.feat).toBeUndefined();
+  });
+
+  it("shows a create still running after a relaunch, with its log and starter", async () => {
+    mockBackend({
+      snapshot: () => ({
+        planes: planesModel([plane("feat", "creating")]),
+        sessions: [],
+        agents: [],
+        agentKinds: [],
+        creates: [
+          createInfo("feat", {
+            job: "j1",
+            startedAt: 1,
+            status: { kind: "nothingCreated", envelope: null, retryable: false },
+          }),
+          createInfo("feat", {
+            job: "j2",
+            startedAt: 2,
+            args: null,
+            phase: "addingWorktrees",
+            log: "fetching api",
+            startedBy: "bitplane-cc 0.1.0",
+          }),
+        ],
+      }),
+    });
+    const stop = await connect();
+    expect(state().creates.feat).toMatchObject({
+      job: "j2",
+      phase: "addingWorktrees",
+      log: "fetching api",
+      startedBy: "bitplane-cc 0.1.0",
+    });
+    stop();
+  });
+
+  it("reopens the dialog with the plane's id for a create started before a relaunch", async () => {
+    mockBackend();
+    seed({ creates: { feat: createInfo("feat", { args: null }) } });
+    applyCreate({
+      job: "job-feat",
+      id: "feat",
+      create: createInfo("feat", {
+        args: null,
+        status: { kind: "nothingCreated", envelope: null, retryable: false },
+      }),
+    });
+    await flush();
+    expect(state().dialog).toMatchObject({
+      kind: "create",
+      initial: { id: "feat", branch: "", members: [] },
+    });
+  });
+
+  it("cancels and dismisses by job", async () => {
+    const backend = mockBackend();
+    seed({ creates: { feat: createInfo("feat") } });
+    await cancelCreate("feat");
+    await dismissCreate("feat");
+    expect(backend.called("plane_create_cancel")[0]?.args).toEqual({ job: "job-feat" });
+    expect(backend.called("plane_create_dismiss")[0]?.args).toEqual({ job: "job-feat" });
   });
 });
 
