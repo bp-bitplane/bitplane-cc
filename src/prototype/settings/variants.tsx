@@ -830,7 +830,7 @@ export function VariantE() {
   return <ModalShell Form={HostFormE} />;
 }
 
-function ModalShell({ Form }: { Form: (p: { host: HostSettings }) => ReactNode }) {
+function ModalShell({ Form, Cc }: { Form: (p: { host: HostSettings }) => ReactNode; Cc?: () => ReactNode }) {
   const st = useSettings();
   const [section, setSection] = useState<string>("local");
   const [open, setOpen] = useState(true);
@@ -862,7 +862,9 @@ function ModalShell({ Form }: { Form: (p: { host: HostSettings }) => ReactNode }
             ))}
           </nav>
           <div className={s.pane}>
-            {section === "cc" ? (
+            {section === "cc" && Cc ? (
+              <Cc />
+            ) : section === "cc" ? (
               <>
                 <h2>cc</h2>
                 <label className={s.fieldLabel}>Accent colour</label>
@@ -1056,7 +1058,7 @@ function HostFormE({ host }: { host: HostSettings }) {
 /* ───────────── F: E, but launch settings are a real form with help text; "in effect" behind ⓘ ───────────── */
 
 export function VariantF() {
-  return <ModalShell Form={HostFormF} />;
+  return <ModalShell Form={HostFormF} Cc={CcPaneF} />;
 }
 
 /** ⓘ that shows its content on hover, and pins it on click. */
@@ -1338,6 +1340,26 @@ function HostFormF({ host }: { host: HostSettings }) {
         <button type="button" className="primary" disabled={!ops.length} onClick={save}>
           Save
         </button>
+      </div>
+    </>
+  );
+}
+
+function CcPaneF() {
+  const st = useSettings();
+  return (
+    <>
+      <h2>
+        cc <span className={s.pathHint}>~/.config/bitplane/cc/settings.toml</span>
+      </h2>
+      <div className={s.field}>
+        <div className={s.fieldHead}>
+          Accent colour <span className={s.pathHint}>accent</span>
+        </div>
+        <AccentPicker accent={st.accent} onPick={setAccent} bare />
+        <p className={s.fieldHelp}>
+          Applied and saved at once. Edits made to the file by hand apply the next time cc starts.
+        </p>
       </div>
     </>
   );

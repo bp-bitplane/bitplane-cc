@@ -109,7 +109,7 @@ export function Unknown({ host }: { host: HostSettings }) {
 
 export const ACCENTS = ["#4cb8b4", "#7c8cff", "#ff8a4c", "#e05cc0", "#8fd14f"];
 
-export function AccentPicker({ accent, onPick }: { accent: string; onPick: (a: string) => void }) {
+export function AccentPicker({ accent, onPick, bare }: { accent: string; onPick: (a: string) => void; bare?: boolean }) {
   return (
     <div className={s.accentRow}>
       {ACCENTS.map((a) => (
@@ -129,7 +129,7 @@ export function AccentPicker({ accent, onPick }: { accent: string; onPick: (a: s
         key={accent}
         onBlur={(e) => /^#[0-9a-f]{6}$/i.test(e.target.value) && onPick(e.target.value)}
       />
-      <span className="muted">applied at once · ~/.config/bitplane/cc/settings.toml</span>
+      {!bare && <span className="muted">applied at once · ~/.config/bitplane/cc/settings.toml</span>}
     </div>
   );
 }
