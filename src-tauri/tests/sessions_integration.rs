@@ -257,7 +257,7 @@ async fn a_gone_root_is_shown_and_cannot_restart() {
             .await,
         Err(SessionError::RootMissing(host.plane.clone()))
     );
-    assert_eq!(cc.sessions.plane_sources()[0].directory, host.plane);
+    assert_eq!(cc.sessions.list()[0].plane_id, "demo");
 }
 
 #[tokio::test(flavor = "multi_thread")]

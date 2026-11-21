@@ -165,33 +165,10 @@ function StatusScreen({ status }: { status: AppStatus }) {
     </button>
   );
   switch (status.kind) {
-    case "bpNotFound":
+    case "unavailable":
       return (
-        <Centered title="bp not found" actions={retry}>
-          <p>
-            bitplane-cc needs the bp CLI. Looked on your login shell's PATH. Install bp, then retry.
-          </p>
-        </Centered>
-      );
-    case "bpTooOld":
-      return (
-        <Centered title="bp is too old" actions={retry}>
-          <p>
-            Found bp {status.found}; bitplane-cc needs ≥ {status.required}. Upgrade bp, then retry.
-          </p>
-        </Centered>
-      );
-    case "bpIncompatible":
-      return (
-        <Centered
-          title={
-            status.version
-              ? `bp ${status.version} is incompatible with this app`
-              : "This bp is incompatible with this app"
-          }
-          actions={retry}
-        >
-          <pre className={styles.detail}>{status.error}</pre>
+        <Centered title="bp isn't available">
+          <p>{status.reason}</p>
         </Centered>
       );
     case "gitMissing":

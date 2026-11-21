@@ -10,30 +10,64 @@ const PHASES: { phase: Phase; label: string }[] = [
   { phase: "runningScripts", label: "Running scripts" },
 ];
 
-/** A plane being created: live log, phase, Cancel; or the partial-plane error. */
+/**
+ * A plane being created: live log, phase, Cancel; or how it ended, when its
+ * plane has no row of its own (a partial plane, or one never made).
+ */
 export function CreateProgress({ planeId }: { planeId: string }) {
   const create = useStore((s) => s.creates[planeId]);
   if (!create) return <Centered title={`Creating ${planeId}…`} />;
+  const startedBy = <p className={styles.startedBy}>Started by {create.startedBy}</p>;
+  const dismiss = (
+    <div className={styles.actions}>
+      <button type="button" onClick={() => void dismissCreate(planeId)}>
+        Dismiss
+      </button>
+    </div>
+  );
 
-  if (create.status.kind === "partial") {
-    return (
-      <div className={styles.progress}>
-        <h2>{planeId} was left half-created</h2>
-        <EnvelopeDetails envelope={create.status.envelope} />
-        <p>
-          The app never destroys planes. Remove what's left with <code>bp destroy {planeId}</code>,
-          then create it again.
-        </p>
-        <Log text={create.log} />
-        <div className={styles.actions}>
-          <button type="button" onClick={() => void dismissCreate(planeId)}>
-            Dismiss
-          </button>
+  switch (create.status.kind) {
+    case "partial":
+      return (
+        <div className={styles.progress}>
+          <h2>{planeId} was left half-created</h2>
+          <EnvelopeDetails envelope={create.status.envelope} />
+          <p>
+            The app never destroys planes. Remove what's left with <code>bp destroy {planeId}</code>
+            , then create it again.
+          </p>
+          <Log text={create.log} />
+          {dismiss}
         </div>
-      </div>
-    );
+      );
+    case "nothingCreated":
+      return (
+        <div className={styles.progress}>
+          <h2>{planeId} wasn't created</h2>
+          <EnvelopeDetails envelope={create.status.envelope} />
+          {startedBy}
+          <Log text={create.log} />
+          {dismiss}
+        </div>
+      );
+    case "failed":
+      return (
+        <div className={styles.progress}>
+          <h2>Creating {planeId} failed</h2>
+          <p>
+            bp gave no answer ({create.status.reason}). Check the plane with <code>bp list</code>{" "}
+            before creating it again.
+          </p>
+          {startedBy}
+          <Log text={create.log} />
+          {dismiss}
+        </div>
+      );
+    default:
+      break;
   }
 
+  const running = create.status.kind === "running";
   const current = PHASES.findIndex((p) => p.phase === create.phase);
   return (
     <div className={styles.progress}>
@@ -49,16 +83,17 @@ export function CreateProgress({ planeId }: { planeId: string }) {
           </li>
         ))}
       </ol>
+      {startedBy}
       <Log text={create.log} />
-      <div className={styles.actions}>
-        <button
-          type="button"
-          disabled={create.status.kind !== "running"}
-          onClick={() => void cancelCreate(planeId)}
-        >
-          Cancel
-        </button>
-      </div>
+      {running ? (
+        <div className={styles.actions}>
+          <button type="button" onClick={() => void cancelCreate(planeId)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        dismiss
+      )}
     </div>
   );
 }

@@ -33,9 +33,11 @@ export const commands = {
 	/**  The cumulative count of bytes the terminal has drawn since it attached. */
 	ptyAck: (id: number, bytes: number) => __TAURI_INVOKE<void>("pty_ack", { id, bytes }),
 	planeCreateDraft: (id: string) => __TAURI_INVOKE<null>("plane_create_draft", { id }),
-	planeCreate: (args: CreateArgs) => __TAURI_INVOKE<null>("plane_create", { args }),
-	planeCreateCancel: (id: string) => __TAURI_INVOKE<void>("plane_create_cancel", { id }),
-	planeCreateDismiss: (id: string) => __TAURI_INVOKE<void>("plane_create_dismiss", { id }),
+	/**  Starts `bp create` as a daemon job; returns the job. */
+	planeCreate: (args: CreateArgs) => __TAURI_INVOKE<string>("plane_create", { args }),
+	planeCreateCancel: (job: string) => __TAURI_INVOKE<null>("plane_create_cancel", { job }),
+	/**  Forgets a finished create for every client of the daemon. */
+	planeCreateDismiss: (job: string) => __TAURI_INVOKE<null>("plane_create_dismiss", { job }),
 	planeOpenInVscode: (planeId: string) => __TAURI_INVOKE<null>("plane_open_in_vscode", { planeId }),
 	planeSourceControl: (planeId: string) => __TAURI_INVOKE<Repo[]>("plane_source_control", { planeId }),
 	/**
@@ -80,6 +82,7 @@ export const events = {
 	agentChanged: makeEvent<AgentChanged>("agent-changed"),
 	agentKindsChanged: makeEvent<AgentKindsChanged>("agent-kinds-changed"),
 	createChanged: makeEvent<CreateChanged>("create-changed"),
+	createLog: makeEvent<CreateLog>("create-log"),
 	daemonChanged: makeEvent<DaemonChanged>("daemon-changed"),
 	fileTabsChanged: makeEvent<FileTabsChanged>("file-tabs-changed"),
 	filesChanged: makeEvent<FilesChanged>("files-changed"),
@@ -150,9 +153,11 @@ export type AgentState = { kind: "idle" } | { kind: "busy" } | { kind: "waiting"
 /**  A state this build doesn't know, from a newer daemon. */
 { kind: "unknown" };
 
-/**  Whether the app can talk to bp, and if not, why. */
-export type AppStatus = { kind: "loading" } | { kind: "ready" } | { kind: "bpNotFound" } | { kind: "bpTooOld"; found: string; required: string } | { kind: "bpIncompatible"; version: string | null; error: string } | 
-/**  git missing or older than 2.36 (bp exit 4). */
+/**  Whether the plane list can be shown, and if not, why. */
+export type AppStatus = { kind: "loading" } | { kind: "ready" } | 
+/**  The daemon's plane module is off; `reason` names the fix. */
+{ kind: "unavailable"; reason: string } | 
+/**  git missing or older than 2.36. */
 { kind: "gitMissing"; message: string } | 
 /**  `bp list` failed for another reason. */
 { kind: "listFailed"; message: string };
@@ -171,6 +176,7 @@ export type Change = {
 
 export type ChangeKind = "modified" | "typeChanged" | "added" | "deleted" | "renamed" | "copied" | "conflicted";
 
+/**  What the create dialog asks for; mapped onto bp's `PlaneCreateRequest`. */
 export type CreateArgs = {
 	id: string,
 	branch: string,
@@ -182,29 +188,55 @@ export type CreateArgs = {
 
 export type CreateChanged = CreateEvent;
 
-/**  `create_changed`: one create, or `None` once it's dismissed. */
+/**  `create_changed`: one create, or `None` once its job is gone. */
 export type CreateEvent = {
+	job: string,
 	id: string,
 	create: CreateInfo | null,
 };
 
-/**  The full state of one create, as the frontend sees it. */
+/**  One create, as the frontend sees it. */
 export type CreateInfo = {
+	job: string,
+	/**  The plane's id. */
 	id: string,
-	args: CreateArgs,
-	directory: string,
-	phase: Phase,
+	/**
+	 *  What this launch of cc asked for; unknown for a create started
+	 *  elsewhere or before a relaunch.
+	 */
+	args: CreateArgs | null,
+	phase: Phase | null,
 	status: CreateStatus,
+	/**  bp's stderr, as much of it as the daemon kept. */
 	log: string,
+	/**  The client that started it, with its version. */
+	startedBy: string,
+	/**  Unix time in milliseconds. */
+	startedAt: number,
 };
 
+export type CreateLog = CreateLogEvent;
+
+/**  `create_log`: lines a running create appended to its log. */
+export type CreateLogEvent = {
+	job: string,
+	id: string,
+	text: string,
+};
+
+/**  bp's answer, never what the disk looks like. */
 export type CreateStatus = { kind: "running" } | { kind: "succeeded" } | 
 /**  The plane was built but a post-create script failed; treated as a success. */
 { kind: "scriptFailed" } | 
 /**  Nothing is on disk; the dialog reopens. */
 { kind: "nothingCreated"; envelope: import("./bp-contract").ErrorEnvelope | null; retryable: boolean } | 
 /**  A partial plane is left behind; only `bp destroy` cleans it up. */
-{ kind: "partial"; envelope: import("./bp-contract").ErrorEnvelope | null };
+{ kind: "partial"; envelope: import("./bp-contract").ErrorEnvelope | null } | 
+/**
+ *  No answer from bp: it couldn't be run, died, or the daemon restarted
+ *  under it, which may have left a partial plane.
+ */
+{ kind: "failed"; reason: string };
 
 export type DaemonChanged = DaemonStatus;
 
@@ -308,7 +340,7 @@ export type PlaneRow = {
 	id: string,
 	directory: string,
 	kind: PlaneKind,
-	/**  Finding tags from `bp list`; empty for drafts and planes being created. */
+	/**  Finding tags from `bp list`; empty unless `kind` is `Plane`. */
 	findings: string[],
 	/**  Member specs from `bp list`; empty unless `kind` is `Plane`. */
 	members: string[],
@@ -327,7 +359,7 @@ export type PlanesModel = {
 	planes: PlaneRow[],
 };
 
-/**  One project from `bp project list`. */
+/**  One project from `plane.projects`. */
 export type Project = {
 	name: string,
 	sourceRepoPresent: boolean,

@@ -3,8 +3,7 @@
 
 pub mod agents;
 pub mod app;
-pub mod bp;
-pub mod create;
+pub mod contract;
 pub mod daemon;
 pub mod diff;
 pub mod editor;
@@ -12,6 +11,7 @@ pub mod env;
 pub mod files;
 pub mod git;
 pub mod ipc;
+pub mod jobs;
 pub mod migrate;
 pub mod persist;
 pub mod planes;
@@ -21,15 +21,15 @@ pub mod workspace;
 use std::sync::Arc;
 
 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
-use tauri::{Manager, RunEvent, Runtime, Url, WindowEvent};
+use tauri::{Manager, Runtime, Url, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 use tauri_specta::Event;
 
 use crate::app::{App, DataDir, Emitters};
 use crate::daemon::DaemonLink;
 use crate::ipc::{
-    AgentChanged, AgentKindsChanged, CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged,
-    PlanesChanged, SessionChanged, SourceControlChanged,
+    AgentChanged, AgentKindsChanged, CreateChanged, CreateLog, DaemonChanged, FileTabsChanged,
+    FilesChanged, PlanesChanged, SessionChanged, SourceControlChanged,
 };
 use crate::workspace::WorkspaceEmitters;
 
@@ -104,6 +104,12 @@ pub fn run() {
                         let _ = CreateChanged(event).emit(&handle);
                     })
                 },
+                create_log: {
+                    let handle = handle.clone();
+                    Arc::new(move |event| {
+                        let _ = CreateLog(event).emit(&handle);
+                    })
+                },
                 workspace: WorkspaceEmitters {
                     source_control: {
                         let handle = handle.clone();
@@ -137,22 +143,13 @@ pub fn run() {
             tauri_app.manage::<ipc::DaemonState>(Arc::clone(&daemon));
             tauri::async_runtime::spawn(async move {
                 daemon.start();
-                app.start();
-                tokio::join!(app.refresh(), app.import_legacy());
+                tokio::join!(app.capture_env(), app.import_legacy());
             });
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("building the tauri application")
-        .run(|handle, event| {
-            // Quitting just quits (ADR 0028): the daemon keeps the sessions.
-            // A create is told to stop, so it can clean up.
-            if let RunEvent::Exit = event
-                && let Some(app) = handle.try_state::<ipc::AppState>()
-            {
-                app.creates.interrupt_all();
-            }
-        });
+        .run(|_, _| {});
 }
 
 /// Keep the window on cc's own page: terminal output is untrusted, and its

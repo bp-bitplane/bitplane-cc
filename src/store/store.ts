@@ -11,6 +11,7 @@ import {
   type CreateArgs,
   type CreateEvent,
   type CreateInfo,
+  type CreateLogEvent,
   commands,
   type DaemonInfo,
   type DaemonStatus,
@@ -86,6 +87,7 @@ export interface State {
   agents: Record<string, AgentInfo>;
   /** The agent kinds the daemon can launch, or why not; the launcher lists them. */
   agentKinds: AgentKindInfo[];
+  /** Plane id → its create, the latest when there are several. */
   creates: Record<string, CreateInfo>;
   /** New plane id → the plane it duplicates, while its create runs. */
   duplicates: Record<string, string>;
@@ -195,6 +197,7 @@ export async function connect(): Promise<() => void> {
     events.agentChanged.listen((e) => applyAgent(e.payload)),
     events.agentKindsChanged.listen((e) => set({ agentKinds: e.payload })),
     events.createChanged.listen((e) => applyCreate(e.payload)),
+    events.createLog.listen((e) => applyCreateLog(e.payload)),
     events.sourceControlChanged.listen((e) => applySourceControl(e.payload)),
     events.filesChanged.listen((e) => applyFilesChanged(e.payload)),
     events.fileTabsChanged.listen((e) => applyFileTabsChanged(e.payload)),
@@ -245,9 +248,13 @@ export function saveUiStateOnChange(): () => void {
 export function loadSnapshot(snapshot: Snapshot): void {
   const sessions = Object.fromEntries(snapshot.sessions.map((s) => [s.id, s]));
   const agents = Object.fromEntries(snapshot.agents.map((a) => [a.agentSession, a]));
-  const creates = Object.fromEntries(snapshot.creates.map((c) => [c.id, c]));
-  const scriptFailed: Record<string, true> = {};
+  const creates: Record<string, CreateInfo> = {};
   for (const create of snapshot.creates) {
+    const shown = creates[create.id];
+    if (!shown || create.startedAt >= shown.startedAt) creates[create.id] = create;
+  }
+  const scriptFailed: Record<string, true> = {};
+  for (const create of Object.values(creates)) {
     if (create.status.kind === "scriptFailed") scriptFailed[create.id] = true;
   }
   set({
@@ -289,18 +296,34 @@ export function applyAgent({ agentSession, agent }: AgentEvent): void {
   });
 }
 
-export function applyCreate({ id, create }: CreateEvent): void {
+export function applyCreate({ job, id, create }: CreateEvent): void {
   const state = get();
   const previous = state.creates[id];
   if (!create) {
+    if (previous?.job !== job) return;
     const { [id]: _, ...creates } = state.creates;
     set({ creates });
     return;
   }
+  if (previous && previous.job !== job && create.startedAt < previous.startedAt) return;
   set({ creates: { ...state.creates, [id]: create } });
-  if (previous?.status.kind === "running" && create.status.kind !== "running") {
+  if (
+    previous?.job === job &&
+    previous.status.kind === "running" &&
+    create.status.kind !== "running"
+  ) {
     void onCreateFinished(create);
   }
+}
+
+/** Lines a running create logged since. */
+export function applyCreateLog({ job, id, text }: CreateLogEvent): void {
+  set((state) => {
+    const create = state.creates[id];
+    if (create?.job !== job) return {};
+    const log = create.log ? `${create.log}\n${text}` : text;
+    return { creates: { ...state.creates, [id]: { ...create, log } } };
+  });
 }
 
 export function selectPlane(planeId: string): void {
@@ -578,13 +601,13 @@ export async function retryDaemon(): Promise<void> {
   await commands.daemonRetry();
 }
 
-/** Capture the environment again and re-read the plane list (also every Retry). */
+/** Have the daemon re-read the plane list (also every Retry). */
 export async function refresh(): Promise<void> {
   const planeId = shownToolPlaneId();
   if (planeId && get().activeTool === "files") refreshFiles(planeId);
   const selected = get().selectedPlaneId;
   if (selected) applyFileTabsChanged({ planeId: selected });
-  await Promise.all([commands.refresh(), planeId && loadSourceControl(planeId)]);
+  await Promise.all([reportFailure(commands.refresh()), planeId && loadSourceControl(planeId)]);
 }
 
 /** `mkdir` a draft plane, then select it, which opens a session. */
@@ -609,15 +632,18 @@ export async function createPlane(
 }
 
 export async function cancelCreate(planeId: string): Promise<void> {
-  await commands.planeCreateCancel(planeId);
+  const create = get().creates[planeId];
+  if (create) await reportFailure(commands.planeCreateCancel(create.job));
 }
 
+/** Forgets the plane's finished create, for every client of the daemon. */
 export async function dismissCreate(planeId: string): Promise<void> {
   set((state) => {
     const { [planeId]: _, ...scriptFailed } = state.scriptFailed;
     return { scriptFailed };
   });
-  await commands.planeCreateDismiss(planeId);
+  const create = get().creates[planeId];
+  if (create) await reportFailure(commands.planeCreateDismiss(create.job));
 }
 
 export function zoom(step: 1 | -1 | 0): void {
@@ -832,7 +858,7 @@ async function onCreateFinished(create: CreateInfo): Promise<void> {
   set({ duplicates });
   switch (create.status.kind) {
     case "succeeded":
-      await commands.planeCreateDismiss(create.id);
+      await reportFailure(commands.planeCreateDismiss(create.job));
       selectPlane(create.id);
       break;
     case "scriptFailed":
@@ -841,12 +867,12 @@ async function onCreateFinished(create: CreateInfo): Promise<void> {
       break;
     case "nothingCreated": {
       const { envelope, retryable } = create.status;
-      await commands.planeCreateDismiss(create.id);
+      await reportFailure(commands.planeCreateDismiss(create.job));
       if (get().selectedPlaneId === create.id) set({ selectedPlaneId: null });
       set({
         dialog: {
           kind: "create",
-          initial: create.args,
+          initial: create.args ?? emptyCreateArgs(create.id),
           failure: {
             envelope,
             log: envelope?.error === "create_aborted" ? create.log : null,
@@ -859,6 +885,19 @@ async function onCreateFinished(create: CreateInfo): Promise<void> {
     }
     default:
       break;
+  }
+}
+
+/** A create cc didn't start this launch still reopens with its plane's id. */
+function emptyCreateArgs(id: string): CreateArgs {
+  return { id, branch: "", members: [], intent: "resolve", noFetch: false, noScripts: false };
+}
+
+async function reportFailure(call: Promise<unknown>): Promise<void> {
+  try {
+    await call;
+  } catch (error) {
+    set({ notice: String(error) });
   }
 }
 
