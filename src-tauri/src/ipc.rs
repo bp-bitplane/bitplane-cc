@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::ipc::Invoke;
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
-use tauri::{State, Wry};
+use tauri::{State, Window, Wry};
 use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_events};
 
 use crate::agents::{AgentEvent, AgentKindInfo};
@@ -18,17 +18,16 @@ use crate::app::{App, PlanesModel, Snapshot};
 use crate::bp::Project;
 use crate::create::{CreateArgs, CreateEvent};
 use crate::daemon::{DaemonInfo, DaemonLink, DaemonStatus};
-use crate::diff::{self, DiffMode, FileContents, FileDiff, FileText};
+use crate::diff::{DiffMode, FileContents, FileDiff, FileText};
 use crate::editor;
-use crate::files::{self, FileEntry};
-use crate::files_watch::FilesEvent;
-use crate::git::{self, Repo};
-use crate::git_watch::{FileTabsEvent, GitTarget, SourceControlEvent};
+use crate::files::FileEntry;
+use crate::git::Repo;
 use crate::planes;
 use crate::sessions::{
     AgentOpen, BusyInfo, OpenOptions, OutputSink, SessionError, SessionEvent, SessionId,
     SessionInfo,
 };
+use crate::workspace::{FileTabsEvent, FilesEvent, GitTarget, SourceControlEvent};
 
 pub type AppState = Arc<App>;
 pub type DaemonState = Arc<DaemonLink>;
@@ -261,16 +260,16 @@ async fn plane_source_control(
     plane_id: String,
 ) -> Result<Vec<Repo>, String> {
     let (root, members) = app.source_control_target(&plane_id)?;
-    git::source_control(&root, &members, &app.tool_env()).await
+    app.workspace.source_control(&root, &members).await
 }
 
-/// Keep what `target` shows current, through `source_control_changed` and
-/// `file_tabs_changed`; `None` stops. Sync, so calls apply in the order the
-/// frontend made them.
+/// Keep what `target` shows in this window current, through
+/// `source_control_changed` and `file_tabs_changed`; `None` stops. Sync, so
+/// calls apply in the order the frontend made them.
 #[tauri::command]
 #[specta::specta]
-fn plane_git_watch(app: State<'_, AppState>, target: Option<GitTarget>) {
-    app.watch_git(target);
+fn plane_git_watch(app: State<'_, AppState>, window: Window, target: Option<GitTarget>) {
+    app.watch_git(window.label(), target);
 }
 
 /// One folder of a plane for Files; `path` is relative to the plane root.
@@ -282,15 +281,21 @@ async fn plane_list_dir(
     path: String,
 ) -> Result<Vec<FileEntry>, String> {
     let (root, _) = app.source_control_target(&plane_id)?;
-    files::list_dir(&root, &path, &app.tool_env()).await
+    app.workspace.list_dir(&root, &path).await
 }
 
-/// Report changes in `dirs` of `plane_id` through `files_changed`; `None`
-/// stops. Sync, so calls apply in the order the frontend made them.
+/// Report changes in `dirs` of `plane_id` to this window through
+/// `files_changed`; `None` stops. Sync, so calls apply in the order the
+/// frontend made them.
 #[tauri::command]
 #[specta::specta]
-fn plane_files_watch(app: State<'_, AppState>, plane_id: Option<String>, dirs: Vec<String>) {
-    app.watch_files(plane_id.map(|id| (id, dirs)));
+fn plane_files_watch(
+    app: State<'_, AppState>,
+    window: Window,
+    plane_id: Option<String>,
+    dirs: Vec<String>,
+) {
+    app.watch_files(window.label(), plane_id.map(|id| (id, dirs)));
 }
 
 #[tauri::command]
@@ -316,7 +321,7 @@ async fn plane_file_diff(
     force: bool,
 ) -> Result<FileDiff, String> {
     let (root, _) = app.source_control_target(&plane_id)?;
-    diff::file_diff(&root, &path, mode, force, &app.tool_env()).await
+    app.workspace.file_diff(&root, &path, mode, force).await
 }
 
 /// Both sides of `path`'s diff in `mode`, for expanding unchanged context.
@@ -329,7 +334,7 @@ async fn plane_file_contents(
     mode: DiffMode,
 ) -> Result<FileContents, String> {
     let (root, _) = app.source_control_target(&plane_id)?;
-    diff::file_contents(&root, &path, mode, &app.tool_env()).await
+    app.workspace.file_contents(&root, &path, mode).await
 }
 
 #[tauri::command]
@@ -340,7 +345,7 @@ async fn plane_read_file(
     path: String,
 ) -> Result<FileText, String> {
     let (root, _) = app.source_control_target(&plane_id)?;
-    diff::read_file(&root, &path)
+    app.workspace.read_file(&root, &path).await
 }
 
 #[tauri::command]

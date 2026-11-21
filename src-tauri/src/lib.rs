@@ -10,20 +10,18 @@ pub mod diff;
 pub mod editor;
 pub mod env;
 pub mod files;
-pub mod files_watch;
 pub mod git;
-pub mod git_cli;
-pub mod git_watch;
 pub mod ipc;
 pub mod migrate;
 pub mod persist;
 pub mod planes;
 pub mod sessions;
+pub mod workspace;
 
 use std::sync::Arc;
 
 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
-use tauri::{Manager, RunEvent, Runtime, Url};
+use tauri::{Manager, RunEvent, Runtime, Url, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 use tauri_specta::Event;
 
@@ -33,6 +31,7 @@ use crate::ipc::{
     AgentChanged, AgentKindsChanged, CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged,
     PlanesChanged, SessionChanged, SourceControlChanged,
 };
+use crate::workspace::WorkspaceEmitters;
 
 /// Where tauri-specta writes the TypeScript bindings.
 pub const BINDINGS_PATH: &str = "../src/ipc/bindings.ts";
@@ -54,6 +53,13 @@ pub fn run() {
         )
         .menu(menu)
         .invoke_handler(invoke_handler)
+        .on_window_event(|window, event| {
+            if let WindowEvent::Destroyed = event
+                && let Some(app) = window.try_state::<ipc::AppState>()
+            {
+                app.close_window(window.label());
+            }
+        })
         .setup(move |tauri_app| {
             builder.mount_events(tauri_app);
             let handle = tauri_app.handle().clone();
@@ -98,23 +104,25 @@ pub fn run() {
                         let _ = CreateChanged(event).emit(&handle);
                     })
                 },
-                source_control: {
-                    let handle = handle.clone();
-                    Arc::new(move |event| {
-                        let _ = SourceControlChanged(event).emit(&handle);
-                    })
-                },
-                file_tabs: {
-                    let handle = handle.clone();
-                    Arc::new(move |event| {
-                        let _ = FileTabsChanged(event).emit(&handle);
-                    })
-                },
-                files: {
-                    let handle = handle.clone();
-                    Arc::new(move |event| {
-                        let _ = FilesChanged(event).emit(&handle);
-                    })
+                workspace: WorkspaceEmitters {
+                    source_control: {
+                        let handle = handle.clone();
+                        Arc::new(move |window, event| {
+                            let _ = SourceControlChanged(event).emit_to(&handle, window);
+                        })
+                    },
+                    file_tabs: {
+                        let handle = handle.clone();
+                        Arc::new(move |window, event| {
+                            let _ = FileTabsChanged(event).emit_to(&handle, window);
+                        })
+                    },
+                    files: {
+                        let handle = handle.clone();
+                        Arc::new(move |window, event| {
+                            let _ = FilesChanged(event).emit_to(&handle, window);
+                        })
+                    },
                 },
             };
             let data_dir = match tauri_app.path().app_data_dir() {
