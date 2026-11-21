@@ -32,6 +32,7 @@ export interface HostSettings {
   };
   loaded: HostSettings["file"];
   captureError: string | null;
+  daemon: { version: string; pid: number; startedAt: number; socket: string; log: string; executable: string; bundled: string };
   sessions: { name: string; plane: string; busy: string | null }[];
 }
 
@@ -148,6 +149,15 @@ function hosts(scenario: Scenario): HostSettings[] {
       loaded,
       captureError:
         scenario === "captureFailed" ? "/opt/homebrew/bin/fish: timed out after 10s" : null,
+      daemon: {
+        version: "0.4.2",
+        pid: 48213,
+        startedAt: Date.now() - (3 * 60 + 12) * 60_000,
+        socket: "~/Library/Application Support/bitplane/sessiond.sock",
+        log: "~/Library/Logs/bitplane/sessiond.log",
+        executable: "/Applications/cc.app/Contents/MacOS/bitplane-sessiond",
+        bundled: "/Applications/cc.app/Contents/MacOS/bitplane-sessiond",
+      },
       sessions: [
         { name: "zsh", plane: "alpha", busy: null },
         { name: "Claude · refactor auth", plane: "alpha", busy: "busy" },
@@ -166,6 +176,15 @@ function hosts(scenario: Scenario): HostSettings[] {
       file: { ...baseFile(), env: { PATH: "${HOME}/.cargo/bin:${PATH}" }, shell: null, unknown: {} },
       loaded: { ...baseFile(), env: { PATH: "${HOME}/.cargo/bin:${PATH}" }, shell: null, unknown: {} },
       captureError: null,
+      daemon: {
+        version: "0.4.1",
+        pid: 902,
+        startedAt: Date.now() - 6 * 24 * 60 * 60_000,
+        socket: "ssh build-box → ~/.local/state/bitplane/sessiond.sock",
+        log: "~/.local/state/bitplane/sessiond.log",
+        executable: "~/.local/bin/bitplane-sessiond",
+        bundled: "/Applications/cc.app/Contents/MacOS/bitplane-sessiond",
+      },
       sessions: [{ name: "cargo build", plane: "gamma", busy: "cargo running" }],
     },
   ];
@@ -252,7 +271,7 @@ export function restart(hostId: string) {
   set({
     hosts: state.hosts.map((h) =>
       h.hostId === hostId
-        ? { ...h, loaded: structuredClone(h.file), loadedRevision: h.revision, captureError: null }
+        ? { ...h, loaded: structuredClone(h.file), loadedRevision: h.revision, captureError: null, daemon: { ...h.daemon, pid: h.daemon.pid + 17, startedAt: Date.now() } }
         : h,
     ),
     log: [...state.log, `daemon.shutdown{restore:true} ${hostId} → auto-start → new hello`],

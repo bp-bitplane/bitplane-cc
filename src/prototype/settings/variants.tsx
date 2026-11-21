@@ -11,7 +11,10 @@ import {
   useSettings,
 } from "./model";
 import s from "./proto.module.css";
-import { AccentPicker, HostNotices, Unknown } from "./shared";
+import { Bug, RotateCw } from "lucide-react";
+import { DialogActions, Modal } from "../../dialogs/Modal";
+import { pending } from "./model";
+import { AccentPicker, HostNotices, RestartConfirm, Unknown } from "./shared";
 
 const TABLES: { table: Table; title: string; hint: string }[] = [
   { table: "env", title: "Environment — every session", hint: "[env]" },
@@ -1058,7 +1061,13 @@ function HostFormE({ host }: { host: HostSettings }) {
 /* ───────────── F: E, but launch settings are a real form with help text; "in effect" behind ⓘ ───────────── */
 
 export function VariantF() {
-  return <ModalShell Form={HostFormF} Cc={CcPaneF} />;
+  return (
+    <>
+      {/* the sidebar's bug button moves into the host card */}
+      <style>{'[aria-label="Session daemon info"] { display: none; }'}</style>
+      <ModalShell Form={HostFormF} Cc={CcPaneF} />
+    </>
+  );
 }
 
 /** ⓘ that shows its content on hover, and pins it on click. */
@@ -1198,10 +1207,9 @@ function HostFormF({ host }: { host: HostSettings }) {
 
   return (
     <>
-      <h2>
-        {host.label} <span className={s.pathHint}>{host.path}</span>
-      </h2>
-      <HostNotices host={host} conflict={conflict} />
+      <h2>{host.label}</h2>
+      <DaemonCard host={host} />
+      <HostNotices host={host} conflict={conflict} restartInCard />
       <div className={locked ? s.lockedArea : undefined}>
         <section className={s.tomlSection}>
           <h3 className={s.tomlHead}>
@@ -1362,5 +1370,110 @@ function CcPaneF() {
         </p>
       </div>
     </>
+  );
+}
+
+function uptime(since: number) {
+  const m = Math.round((Date.now() - since) / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m`;
+  if (m < 24 * 60) return `${Math.floor(m / 60)}h ${m % 60}m`;
+  return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
+}
+
+function DaemonCard({ host }: { host: HostSettings }) {
+  const [dialog, setDialog] = useState<"info" | "restart" | null>(null);
+  const d = host.daemon;
+  const busy = host.sessions.filter((x) => x.busy).length;
+  const needsRestart = pending(host);
+  const settingsState =
+    host.fileStatus.kind === "invalid" ? "error" : host.captureError ? "warn" : needsRestart ? "pending" : "ok";
+  return (
+    <div className={s.daemonCard}>
+      <div className={s.daemonTop}>
+        <span className={s.statusDot} data-state="ok" />
+        <b>Session daemon</b>
+        <span className="muted">
+          v{d.version} · up {uptime(d.startedAt)} · {host.remote ? "remote" : "local"}
+        </span>
+        <span style={{ flex: 1 }} />
+        <button type="button" className={s.cardIcon} title="Session daemon info" aria-label="Daemon debug info" onClick={() => setDialog("info")}>
+          <Bug size={14} />
+        </button>
+        <button
+          type="button"
+          className={s.cardIcon}
+          data-attention={needsRestart}
+          disabled={host.remote}
+          title={host.remote ? "Restarting a remote daemon comes in M2" : needsRestart ? "Restart daemon to apply saved settings…" : "Restart daemon…"}
+          aria-label="Restart daemon"
+          onClick={() => setDialog("restart")}
+        >
+          <RotateCw size={14} />
+        </button>
+      </div>
+      <dl className={s.daemonFacts}>
+        <div>
+          <dt>Sessions</dt>
+          <dd>
+            {host.sessions.length} running{busy ? `, ${busy} busy` : ""}
+          </dd>
+        </div>
+        <div>
+          <dt>Settings</dt>
+          <dd data-state={settingsState}>
+            {settingsState === "error"
+              ? "file doesn't parse — running with none"
+              : settingsState === "pending"
+                ? "saved changes not in effect"
+                : settingsState === "warn"
+                  ? "login-shell capture failed"
+                  : "in effect"}
+          </dd>
+        </div>
+        <div>
+          <dt>File</dt>
+          <dd className={s.mono}>{host.path}</dd>
+        </div>
+      </dl>
+      {dialog === "restart" && <RestartConfirm host={host} onClose={() => setDialog(null)} />}
+      {dialog === "info" && (
+        <Modal label="Session daemon" onClose={() => setDialog(null)} wide>
+          <div className={s.modalBody}>
+            <h3>Session daemon on {host.label}</h3>
+            <dl className={s.daemonFacts} data-stack="true">
+              {(
+                [
+                  ["Version", d.version],
+                  ["Process id", d.pid],
+                  ["Executable", d.executable],
+                  ["Bundled", d.bundled],
+                  ["Socket", d.socket],
+                  ["Log", d.log],
+                ] as const
+              ).map(([k, v]) => (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd className={s.mono}>{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="muted">Last hello reply</p>
+            <pre className={s.helloPre}>
+              {JSON.stringify(
+                { version: d.version, instance: `${host.hostId}-${d.pid}`, settings: { error: host.fileStatus.kind === "invalid" ? "parse error" : undefined, captureError: host.captureError ?? undefined, warnings: [] } },
+                null,
+                2,
+              )}
+            </pre>
+            <DialogActions>
+              <button type="button" onClick={() => setDialog(null)}>
+                Close
+              </button>
+            </DialogActions>
+          </div>
+        </Modal>
+      )}
+    </div>
   );
 }

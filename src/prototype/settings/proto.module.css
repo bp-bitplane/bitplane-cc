@@ -104,3 +104,20 @@
 .tomlSection[data-sub="true"] > .tomlHead { font-size: 13px; color: var(--dim); }
 .sectionHelp { margin: -4px 0 8px; color: var(--faint); font-size: 12px; line-height: 1.45; }
 .sectionHelp code { font: 11px var(--mono); }
+.daemonCard { border: 1px solid var(--line); border-radius: 10px; background: var(--hover); padding: 10px 12px; margin: 4px 0 14px; }
+.daemonTop { display: flex; align-items: center; gap: 8px; }
+.statusDot { width: 8px; height: 8px; border-radius: 50%; background: #5bc67a; }
+.cardIcon { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 6px; color: var(--dim); }
+.cardIcon:hover:not(:disabled) { background: var(--panel); color: var(--text); }
+.cardIcon:disabled { opacity: .4; }
+.cardIcon[data-attention="true"]:not(:disabled) { color: var(--accent-text); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.daemonFacts { display: flex; flex-wrap: wrap; gap: 4px 22px; margin: 8px 0 0; font-size: 12px; }
+.daemonFacts > div { display: flex; gap: 6px; }
+.daemonFacts dt { color: var(--faint); }
+.daemonFacts dd { margin: 0; color: var(--dim); }
+.daemonFacts dd[data-state="pending"] { color: var(--accent-text); }
+.daemonFacts dd[data-state="warn"] { color: var(--warn); }
+.daemonFacts dd[data-state="error"] { color: var(--danger); }
+.daemonFacts[data-stack="true"] { flex-direction: column; margin: 10px 0; }
+.daemonFacts[data-stack="true"] dt { width: 90px; flex: none; }
+.helloPre { font: 11px var(--mono); background: var(--hover); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 200px; overflow: auto; }

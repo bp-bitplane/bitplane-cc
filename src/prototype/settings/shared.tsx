@@ -47,7 +47,7 @@ export function RestartConfirm({ host, onClose }: { host: HostSettings; onClose:
 }
 
 /** The host-level notices: parse error, capture failure, pending restart. */
-export function HostNotices({ host, conflict }: { host: HostSettings; conflict: string | null }) {
+export function HostNotices({ host, conflict, restartInCard }: { host: HostSettings; conflict: string | null; restartInCard?: boolean }) {
   const [confirm, setConfirm] = useState(false);
   return (
     <>
@@ -75,8 +75,10 @@ export function HostNotices({ host, conflict }: { host: HostSettings; conflict: 
       )}
       {pending(host) && (
         <div className={s.pendingBox}>
-          <span>Saved, not in effect yet — restart the daemon to apply.</span>
-          <button
+          <span>
+            Saved, not in effect yet — restart the daemon{restartInCard ? " (↻ above)" : ""} to apply.
+          </span>
+          {!restartInCard && <button
             type="button"
             className="primary"
             disabled={host.remote}
@@ -84,7 +86,7 @@ export function HostNotices({ host, conflict }: { host: HostSettings; conflict: 
             onClick={() => setConfirm(true)}
           >
             Restart daemon…
-          </button>
+          </button>}
         </div>
       )}
       {confirm && <RestartConfirm host={host} onClose={() => setConfirm(false)} />}
