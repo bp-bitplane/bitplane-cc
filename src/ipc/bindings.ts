@@ -40,6 +40,8 @@ export const commands = {
 	planeCreateDismiss: (job: string) => __TAURI_INVOKE<null>("plane_create_dismiss", { job }),
 	planeOpenInVscode: (planeId: string) => __TAURI_INVOKE<null>("plane_open_in_vscode", { planeId }),
 	planeSourceControl: (planeId: string) => __TAURI_INVOKE<Repo[]>("plane_source_control", { planeId }),
+	/**  PROTOTYPE: a repo's history for its graph tab. */
+	protoPlaneGitLog: (planeId: string, repo: string) => __TAURI_INVOKE<GitLog>("proto_plane_git_log", { planeId, repo }),
 	/**
 	 *  Keep what `target` shows in this window current, through
 	 *  `source_control_changed` and `file_tabs_changed`; `None` stops. Sync, so
@@ -308,6 +310,12 @@ export type FilesEvent = {
 	dirs: string[],
 };
 
+export type GitLog = {
+	commits: LogCommit[],
+	/**  More commits exist past `LIMIT`. */
+	truncated: boolean,
+};
+
 /**  What a window has on screen that git changes can make stale. */
 export type GitTarget = {
 	planeId: string,
@@ -317,6 +325,17 @@ export type GitTarget = {
 };
 
 export type Head = { kind: "branch"; name: string } | { kind: "detached"; sha: string };
+
+export type LogCommit = {
+	hash: string,
+	parents: string[],
+	/**  `%D`, split: `HEAD -> main`, `origin/main`, `tag: v1`, … */
+	refs: string[],
+	author: string,
+	/**  Unix seconds. */
+	time: number,
+	subject: string,
+};
 
 /**  `@project` or a repo path, with an optional branch override. */
 export type Member = {

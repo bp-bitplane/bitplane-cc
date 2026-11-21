@@ -1,0 +1,119 @@
+.view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.name {
+  font-weight: 600;
+}
+
+.path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  font-family: var(--mono);
+}
+
+.count {
+  color: var(--dim);
+}
+
+.refresh {
+  display: flex;
+  padding: 4px;
+}
+
+.rows {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 0 0 0 6px;
+  list-style: none;
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  white-space: nowrap;
+}
+
+.row:hover {
+  background: var(--hover);
+}
+
+.head {
+  background: var(--raised);
+  font-weight: 600;
+}
+
+.rails {
+  flex-shrink: 0;
+  display: flex;
+  height: 100%;
+}
+
+.subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.author {
+  flex: 0 0 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dim);
+}
+
+.date {
+  flex: 0 0 100px;
+  text-align: right;
+  color: var(--dim);
+}
+
+.ref {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  font: 11px / 16px var(--mono);
+  font-weight: 400;
+  color: var(--text);
+}
+
+.refHead {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.refRemote {
+  color: var(--dim);
+}
+
+.refTag {
+  border-color: var(--warn);
+  color: var(--warn);
+}

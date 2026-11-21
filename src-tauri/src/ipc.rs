@@ -83,6 +83,7 @@ pub fn builder() -> Builder<Wry> {
             plane_create_dismiss,
             plane_open_in_vscode,
             plane_source_control,
+            proto_plane_git_log,
             plane_git_watch,
             plane_list_dir,
             plane_files_watch,
@@ -264,6 +265,18 @@ async fn plane_source_control(
 ) -> Result<Vec<Repo>, String> {
     let (root, members) = app.source_control_target(&plane_id)?;
     app.workspace.source_control(&root, &members).await
+}
+
+/// PROTOTYPE: a repo's history for its graph tab.
+#[tauri::command]
+#[specta::specta]
+async fn proto_plane_git_log(
+    app: State<'_, AppState>,
+    plane_id: String,
+    repo: String,
+) -> Result<crate::proto_git_log::GitLog, String> {
+    let (root, members) = app.source_control_target(&plane_id)?;
+    crate::proto_git_log::log(&root, &members, &repo, &app.tool_env()).await
 }
 
 /// Keep what `target` shows in this window current, through

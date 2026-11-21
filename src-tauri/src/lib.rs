@@ -15,6 +15,7 @@ pub mod jobs;
 pub mod migrate;
 pub mod persist;
 pub mod planes;
+pub mod proto_git_log;
 pub mod sessions;
 pub mod workspace;
 
@@ -66,7 +67,7 @@ pub fn run() {
             let daemon = {
                 let handle = handle.clone();
                 DaemonLink::new(
-                    bitplane_sessiond::paths::Dirs::for_host(),
+                    proto_daemon_dirs(),
                     bundled_daemon(),
                     Arc::new(move |status| {
                         let _ = DaemonChanged(status).emit(&handle);
@@ -175,6 +176,15 @@ fn is_app_page(url: &Url, dev_url: Option<&Url>) -> bool {
 fn bundled_daemon() -> std::path::PathBuf {
     let exe = std::env::current_exe().unwrap_or_default();
     exe.with_file_name(bitplane_sessiond::DAEMON_NAME)
+}
+
+/// PROTOTYPE (alfonz/proto-git-graph): its own daemon under `bp-proto/`, so it never
+/// attaches to an installed cc's older daemon. Short: the socket path must stay under 104 bytes.
+fn proto_daemon_dirs() -> Result<bitplane_sessiond::paths::Dirs, String> {
+    use bitplane_sessiond::paths::Dirs;
+    let host = Dirs::for_host()?;
+    let base = |dir: &std::path::Path| dir.ancestors().nth(3).unwrap_or(dir).join("bp-proto");
+    Ok(Dirs::for_version(&base(&host.runtime), &base(&host.state)))
 }
 
 /// Write the TypeScript bindings to `path`.

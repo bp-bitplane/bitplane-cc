@@ -4,6 +4,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  GitBranch,
   RefreshCw,
   TriangleAlert,
 } from "lucide-react";
@@ -14,6 +15,7 @@ import { activeFileTab, findPlane } from "../store/selectors";
 import {
   loadSourceControl,
   openFileTab,
+  openGraphTab,
   setAllReposCollapsed,
   toggleRepoCollapsed,
   useStore,
@@ -91,24 +93,29 @@ function RepoSection({ planeId, repo }: { planeId: string; repo: Repo }) {
   const status = repo.state.kind === "ready" ? repo.state.status : null;
   return (
     <section className={styles.repo} aria-label={repo.name}>
-      <button
-        type="button"
-        className={styles.repoHead}
-        aria-expanded={expanded}
-        title={repo.path}
-        onClick={() => toggleRepoCollapsed(repo.path)}
-      >
-        <ChevronRight
-          className={`${styles.chevron} ${expanded ? styles.open : ""}`}
-          size={14}
-          strokeWidth={1.75}
-        />
-        <span className={styles.repoName}>{repo.name}</span>
-        {status && <RepoSummary status={status} />}
-        {repo.state.kind !== "ready" && (
-          <TriangleAlert className={styles.warn} size={13} aria-label="warning" />
-        )}
-      </button>
+      <div className={styles.repoHeadRow}>
+        <button
+          type="button"
+          className={styles.repoHead}
+          aria-expanded={expanded}
+          title={repo.path}
+          onClick={() => toggleRepoCollapsed(repo.path)}
+        >
+          <ChevronRight
+            className={`${styles.chevron} ${expanded ? styles.open : ""}`}
+            size={14}
+            strokeWidth={1.75}
+          />
+          <span className={styles.repoName}>{repo.name}</span>
+          {status && <RepoSummary status={status} />}
+          {repo.state.kind !== "ready" && (
+            <TriangleAlert className={styles.warn} size={13} aria-label="warning" />
+          )}
+        </button>
+        <PanelButton title="Git graph" onClick={() => openGraphTab(planeId, repo.path, repo.name)}>
+          <GitBranch size={14} strokeWidth={1.75} />
+        </PanelButton>
+      </div>
       {expanded && <RepoBody planeId={planeId} repo={repo} />}
     </section>
   );

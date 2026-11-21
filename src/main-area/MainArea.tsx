@@ -3,9 +3,17 @@ import type { ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { CreateProgress } from "../create-plane/CreateProgress";
 import { FileTabView } from "../file-tab/FileTabView";
+import { GraphTabView } from "../graph-tab/GraphTabView";
 import type { AppStatus } from "../ipc";
 import { labelFor } from "../keymap";
-import { activeFileTab, activeSession, agentOf, findPlane, tabsOf } from "../store/selectors";
+import {
+  activeFileTab,
+  activeGraphTab,
+  activeSession,
+  agentOf,
+  findPlane,
+  tabsOf,
+} from "../store/selectors";
 import {
   dismissCreate,
   dismissNotice,
@@ -36,6 +44,9 @@ export function MainArea() {
   const fileTab = useStore((s) =>
     view.screen === null ? activeFileTab(s, s.selectedPlaneId) : undefined,
   );
+  const graphTab = useStore((s) =>
+    view.screen === null ? activeGraphTab(s, s.selectedPlaneId) : undefined,
+  );
   return (
     <main className={styles.main}>
       {view.tabs ? (
@@ -49,6 +60,11 @@ export function MainArea() {
         {fileTab && (
           <div className={styles.screen}>
             <FileTabView key={`${fileTab.planeId}/${fileTabKey(fileTab)}`} tab={fileTab} />
+          </div>
+        )}
+        {graphTab && (
+          <div className={styles.screen}>
+            <GraphTabView key={`${graphTab.planeId}/${graphTab.repoPath}`} tab={graphTab} />
           </div>
         )}
         {view.screen !== null && (

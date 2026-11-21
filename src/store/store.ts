@@ -30,6 +30,7 @@ import {
 } from "../ipc";
 import { detectPlatform, type Platform } from "../keymap";
 import { type FileTab, type FileTabKey, type FileTabMode, fileTabKey } from "../tabs/fileTabs";
+import { type GraphTab, type GraphTabKey, graphTabKey } from "../tabs/graphTabs";
 import { toolPanelView } from "../tool-bar/toolPanelView";
 import type { Tool } from "../tool-bar/tools";
 import {
@@ -37,6 +38,7 @@ import {
   activeTabId,
   fileTabsOf,
   findPlane,
+  graphTabsOf,
   sessionOfAgent,
   sessionsOf,
   shownPlaneId,
@@ -68,7 +70,7 @@ export type Dialog =
   | { kind: "daemonInfo"; info: DaemonInfo | null };
 
 /** A Session tab by session id, or a File tab by its key within the plane. */
-export type TabId = number | FileTabKey;
+export type TabId = number | FileTabKey | GraphTabKey;
 
 export type DiffStyle = "unified" | "split";
 
@@ -96,6 +98,8 @@ export interface State {
   activeTab: Record<string, TabId>;
   /** Plane id → its File tabs, in tab order; never saved. */
   fileTabs: Record<string, FileTab[]>;
+  /** PROTOTYPE: plane id → its graph tabs, one per repo; never saved. */
+  graphTabs: Record<string, GraphTab[]>;
   /** Planes the user collapsed; a plane with sessions starts expanded. */
   collapsed: Record<string, boolean>;
   dialog: Dialog | null;
@@ -146,6 +150,7 @@ export const initialState = (): State => ({
   selectedPlaneId: null,
   activeTab: {},
   fileTabs: {},
+  graphTabs: {},
   collapsed: {},
   dialog: null,
   fontSize: DEFAULT_FONT_SIZE,
@@ -423,7 +428,8 @@ export function closeActiveTab(): void {
   const id = activeTabId(state, planeId);
   if (!planeId || id === undefined) return;
   if (typeof id === "number") void requestCloseSession(id);
-  else closeFileTab(planeId, id);
+  else if (id.startsWith("graph:")) closeGraphTab(planeId, id as GraphTabKey);
+  else closeFileTab(planeId, id as FileTabKey);
 }
 
 /** Closes the session for every client of the daemon, not just this tab. */
@@ -515,6 +521,35 @@ export function closeFileTab(planeId: string, key: FileTabKey): void {
     fileTabs: {
       ...state.fileTabs,
       [planeId]: fileTabsOf(state, planeId).filter((tab) => fileTabKey(tab) !== key),
+    },
+  }));
+  launchIfEmptied(planeId);
+}
+
+/** PROTOTYPE: focus the repo's graph tab, opening it pinned if it isn't open. */
+export function openGraphTab(planeId: string, repoPath: string, name: string): void {
+  const key = graphTabKey({ repoPath });
+  set((state) => {
+    const tabs = graphTabsOf(state, planeId);
+    const focus = {
+      selectedPlaneId: planeId,
+      activeTab: { ...state.activeTab, [planeId]: key },
+      notice: null,
+    };
+    if (tabs.some((tab) => graphTabKey(tab) === key)) return focus;
+    return {
+      ...focus,
+      graphTabs: { ...state.graphTabs, [planeId]: [...tabs, { planeId, repoPath, name }] },
+    };
+  });
+}
+
+export function closeGraphTab(planeId: string, key: GraphTabKey): void {
+  set((state) => ({
+    activeTab: activeAfterClosing(state, planeId, key),
+    graphTabs: {
+      ...state.graphTabs,
+      [planeId]: graphTabsOf(state, planeId).filter((tab) => graphTabKey(tab) !== key),
     },
   }));
   launchIfEmptied(planeId);

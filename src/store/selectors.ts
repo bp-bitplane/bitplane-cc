@@ -1,5 +1,6 @@
 import type { AgentInfo, PlaneRow, SessionInfo } from "../ipc";
 import { type FileTab, fileTabKey } from "../tabs/fileTabs";
+import { type GraphTab, graphTabKey } from "../tabs/graphTabs";
 import type { State, TabId } from "./store";
 
 type Mirror = Pick<State, "planes" | "sessions">;
@@ -21,13 +22,20 @@ export function fileTabsOf(state: Pick<State, "fileTabs">, planeId: string): Fil
   return state.fileTabs[planeId] ?? NO_FILE_TABS;
 }
 
-type Tabs = Pick<State, "sessions" | "fileTabs" | "activeTab">;
+const NO_GRAPH_TABS: GraphTab[] = [];
+
+export function graphTabsOf(state: Partial<Pick<State, "graphTabs">>, planeId: string): GraphTab[] {
+  return state.graphTabs?.[planeId] ?? NO_GRAPH_TABS;
+}
+
+type Tabs = Pick<State, "sessions" | "fileTabs" | "activeTab"> & Partial<Pick<State, "graphTabs">>;
 
 /** A plane's Tabs: Session tabs in creation order, then File tabs. */
 export function tabsOf(state: Omit<Tabs, "activeTab">, planeId: string): TabId[] {
   return [
     ...sessionsOf(state, planeId).map((s) => s.id),
     ...fileTabsOf(state, planeId).map(fileTabKey),
+    ...graphTabsOf(state, planeId).map(graphTabKey),
   ];
 }
 
@@ -49,6 +57,12 @@ export function activeFileTab(state: Tabs, planeId: string | null): FileTab | un
   const id = activeTabId(state, planeId);
   if (!planeId || typeof id !== "string") return undefined;
   return fileTabsOf(state, planeId).find((tab) => fileTabKey(tab) === id);
+}
+
+export function activeGraphTab(state: Tabs, planeId: string | null): GraphTab | undefined {
+  const id = activeTabId(state, planeId);
+  if (!planeId || typeof id !== "string") return undefined;
+  return graphTabsOf(state, planeId).find((tab) => graphTabKey(tab) === id);
 }
 
 /** The plane tools show: the active tab's, else the Sidebar selection's. */

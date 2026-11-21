@@ -26,7 +26,8 @@ export function toSaved(state: State): SavedUiState {
   const activeTab: SavedUiState["activeTab"] = {};
   for (const [planeId, id] of Object.entries(state.activeTab)) {
     if (typeof id === "string") {
-      activeTab[planeId] = { file: id };
+      if (id.startsWith("graph:")) continue;
+      activeTab[planeId] = { file: id as FileTabKey };
       continue;
     }
     const key = state.sessions[id]?.key;

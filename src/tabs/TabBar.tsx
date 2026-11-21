@@ -1,4 +1,4 @@
-import { File, Plus, X } from "lucide-react";
+import { File, GitBranch, Plus, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { SessionInfo } from "../ipc";
@@ -7,6 +7,7 @@ import {
   activeTabId,
   fileTabsOf,
   findPlane,
+  graphTabsOf,
   programTitle,
   sessionsOf,
   sessionTitle,
@@ -14,6 +15,7 @@ import {
 } from "../store/selectors";
 import {
   closeFileTab,
+  closeGraphTab,
   openLauncher,
   pinFileTab,
   renameSession,
@@ -23,6 +25,7 @@ import {
   useStore,
 } from "../store/store";
 import { fileTabKey, fileTabTitle, folderOf, folderSuffixes } from "./fileTabs";
+import { graphTabKey } from "./graphTabs";
 import { SessionSlot, useNumbersShown } from "./SessionSlot";
 import styles from "./TabBar.module.css";
 
@@ -36,6 +39,7 @@ export function TabBar({ planeId }: { planeId: string }) {
   const numbered = useNumbersShown(platform);
   const sessions = useStore(useShallow((s) => sessionsOf(s, planeId)));
   const fileTabs = useStore((s) => fileTabsOf(s, planeId));
+  const graphTabs = useStore((s) => graphTabsOf(s, planeId));
   const current = useStore((s) => activeTabId(s, planeId));
   const kind = useStore((s) => findPlane(s, planeId)?.kind);
   const canOpen = kind !== "gone" && kind !== "creating";
@@ -88,6 +92,35 @@ export function TabBar({ planeId }: { planeId: string }) {
               aria-label={`Close ${title}`}
               tabIndex={-1}
               onClick={() => closeFileTab(planeId, key)}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        );
+      })}
+      {graphTabs.map((tab) => {
+        const key = graphTabKey(tab);
+        const active = key === current;
+        return (
+          <div key={key} className={`${styles.tab} ${active ? styles.active : ""}`}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={styles.label}
+              title={tab.repoPath}
+              tabIndex={-1}
+              onClick={() => selectTab(planeId, key)}
+            >
+              <GitBranch size={13} className={styles.icon} aria-hidden />
+              <span className={styles.name}>{tab.name}</span>
+            </button>
+            <button
+              type="button"
+              className={styles.close}
+              aria-label={`Close ${tab.name} graph`}
+              tabIndex={-1}
+              onClick={() => closeGraphTab(planeId, key)}
             >
               <X size={13} />
             </button>

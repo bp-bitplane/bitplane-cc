@@ -191,6 +191,9 @@ importers:
 
   .:
     dependencies:
+      '@bitplane/git-graph':
+        specifier: workspace:*
+        version: link:packages/git-graph
       '@pierre/diffs':
         specifier: 1.5.2
         version: 1.5.2(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
