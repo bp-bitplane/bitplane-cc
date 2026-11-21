@@ -823,3 +823,228 @@ function InlineCell(p: {
     />
   );
 }
+
+/* ───────────── E: A's modal + Save, env as D's click-to-edit table on a draft ───────────── */
+
+export function VariantE() {
+  const st = useSettings();
+  const [section, setSection] = useState<string>("local");
+  const [open, setOpen] = useState(true);
+  if (!open)
+    return (
+      <div className={s.fakeMain}>
+        <button type="button" className="primary" onClick={() => setOpen(true)}>
+          ⌘, Settings
+        </button>
+      </div>
+    );
+  const host = st.hosts.find((h) => h.hostId === section);
+  return (
+    <div className={s.fakeMain}>
+      <div className={s.overlay} onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
+        <div className={s.bigDialog}>
+          <nav className={s.nav}>
+            <div className={s.navHead}>Settings</div>
+            <button type="button" data-on={section === "cc"} onClick={() => setSection("cc")}>
+              cc
+            </button>
+            <div className={s.navGroup}>Hosts</div>
+            {st.hosts.map((h) => (
+              <button type="button" key={h.hostId} data-on={section === h.hostId} onClick={() => setSection(h.hostId)}>
+                {h.label}
+                {(h.fileStatus.kind === "invalid" || h.captureError) && <span className={s.dotErr} />}
+                {h.revision !== h.loadedRevision && <span className={s.dotWarn} />}
+              </button>
+            ))}
+          </nav>
+          <div className={s.pane}>
+            {section === "cc" ? (
+              <>
+                <h2>cc</h2>
+                <label className={s.fieldLabel}>Accent colour</label>
+                <AccentPicker accent={st.accent} onPick={setAccent} />
+              </>
+            ) : (
+              host && <HostFormE key={`${host.hostId}-${st.scenario}-${host.revision}`} host={host} />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HostFormE({ host }: { host: HostSettings }) {
+  const { effective, next } = useResolved(host);
+  const [draft, setDraft] = useState(() => structuredClone(host.file));
+  const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<string | null>(null);
+  const ops = diff(host.file, draft);
+  const locked = host.fileStatus.kind === "invalid";
+  const save = () => {
+    const err = applyOps(host.hostId, host.revision, ops);
+    if (err === "SettingsChanged") setConflict(err);
+    else setError(err);
+  };
+  const scalars = [
+    { label: "claude binary", hint: "[agent.claude] command", field: "command" as const, fallback: "look up on PATH", now: `${effective.command.path} (${effective.command.source})` },
+    { label: "Shell", hint: "[terminal] shell", field: "shell" as const, fallback: "$SHELL → account → /bin/sh", now: `${effective.shell.path} (${effective.shell.source})` },
+  ];
+  return (
+    <>
+      <h2>
+        {host.label} <span className={s.pathHint}>{host.path}</span>
+      </h2>
+      <HostNotices host={host} conflict={conflict} />
+      <div className={locked ? s.lockedArea : undefined}>
+        {TABLES.map(({ table, title, hint }) => (
+          <div key={table}>
+            <div className={s.subhead}>
+              {title} <span className={s.pathHint}>{hint}</span>
+            </div>
+            <table className={`${s.table} ${s.grid}`}>
+              <thead>
+                <tr>
+                  <th style={{ width: "24%" }}>Variable</th>
+                  <th style={{ width: "34%" }}>Value</th>
+                  <th>In effect</th>
+                  <th style={{ width: 70 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(draft[table]).map(([k, v]) => {
+                  const saved = host.file[table][k];
+                  const dirty = saved !== v;
+                  const wkey = `${table === "env" ? "env." : "agent.claude.env."}${k}`;
+                  const ws = dirty ? [] : next.warnings.filter((w) => w.key === wkey);
+                  const changed = !dirty && next[table][k] !== effective[table][k];
+                  return (
+                    <tr key={k} data-dirty={dirty} data-changed={changed}>
+                      <td>
+                        <InlineCell
+                          text={k}
+                          disabled={locked}
+                          mono
+                          transform={(x) => x.toUpperCase()}
+                          onCommit={(nk) => nk && nk !== k && setDraft(edit(drop(draft, table, k), table, nk, v))}
+                        />
+                      </td>
+                      <td>
+                        {v === false ? (
+                          <span className={s.unsetText}>unset</span>
+                        ) : (
+                          <InlineCell text={v} disabled={locked} mono empty='""' onCommit={(nv) => setDraft(edit(draft, table, k, nv))} />
+                        )}
+                        {ws.map((w) => (
+                          <div key={w.message} className={s.warnText} style={{ padding: "0 8px 4px" }}>
+                            ⚠ {w.message}
+                          </div>
+                        ))}
+                      </td>
+                      <td className={s.monoDim}>
+                        {show(effective[table][k])}
+                        {changed && <div className={s.nextVal}>after restart: {show(next[table][k])}</div>}
+                        {dirty && <div className="muted">unsaved</div>}
+                      </td>
+                      <td className={s.rowActions}>
+                        {!locked && (
+                          <>
+                            <button
+                              type="button"
+                              title={v === false ? "Set a value instead" : "Unset (VAR = false)"}
+                              onClick={() => setDraft(edit(draft, table, k, v === false ? "" : false))}
+                            >
+                              {v === false ? "set" : "unset"}
+                            </button>
+                            <button type="button" title="Remove from the file" onClick={() => setDraft(drop(draft, table, k))}>
+                              ✕
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!locked && (
+                  <tr className={s.addRow}>
+                    <td colSpan={4}>
+                      <InlineCell
+                        text=""
+                        mono
+                        empty="+ Add variable"
+                        transform={(x) => x.toUpperCase()}
+                        onCommit={(nk) => nk && setDraft(edit(draft, table, nk, ""))}
+                      />
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ))}
+        <div className={s.subhead}>Launching</div>
+        <table className={`${s.table} ${s.grid}`}>
+          <tbody>
+            {scalars.map((x) => (
+              <tr key={x.field} data-dirty={draft[x.field] !== host.file[x.field]}>
+                <td style={{ width: "24%", padding: "0 8px" }}>
+                  {x.label} <span className={s.pathHint}>{x.hint}</span>
+                </td>
+                <td style={{ width: "34%" }}>
+                  <InlineCell
+                    text={draft[x.field] ?? ""}
+                    disabled={locked}
+                    mono
+                    empty={x.fallback}
+                    onCommit={(nv) => setDraft({ ...draft, [x.field]: nv || null })}
+                  />
+                </td>
+                <td className={s.monoDim} colSpan={2}>
+                  {x.now}
+                </td>
+              </tr>
+            ))}
+            <tr data-dirty={draft.captureEnabled !== host.file.captureEnabled || draft.captureTimeout !== host.file.captureTimeout}>
+              <td style={{ padding: "0 8px" }}>
+                Login-shell capture <span className={s.pathHint}>[capture]</span>
+              </td>
+              <td style={{ padding: "0 4px" }}>
+                <button
+                  type="button"
+                  className={s.toggleText}
+                  disabled={locked}
+                  onClick={() => setDraft({ ...draft, captureEnabled: !draft.captureEnabled })}
+                >
+                  {draft.captureEnabled ? "on" : "off"}
+                </button>
+                {" · timeout "}
+                <InlineCell
+                  text={String(draft.captureTimeout)}
+                  disabled={locked}
+                  mono
+                  inline
+                  onCommit={(nv) => setDraft({ ...draft, captureTimeout: Number(nv) || draft.captureTimeout })}
+                />
+                s
+              </td>
+              <td className={s.monoDim} colSpan={2}>
+                {host.captureError ? `failed: ${host.captureError}` : "ok"}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <Unknown host={host} />
+      </div>
+      <div className={s.saveBar} data-dirty={ops.length > 0}>
+        {error && <span className={s.errText}>{error}</span>}
+        <span className="muted">{ops.length ? `${ops.length} unsaved change(s)` : "No unsaved changes"}</span>
+        <button type="button" disabled={!ops.length} onClick={() => setDraft(structuredClone(host.file))}>
+          Discard
+        </button>
+        <button type="button" className="primary" disabled={!ops.length} onClick={save}>
+          Save
+        </button>
+      </div>
+    </>
+  );
+}
