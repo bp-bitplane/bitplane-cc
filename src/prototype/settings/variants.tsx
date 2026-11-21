@@ -1114,7 +1114,7 @@ function HostFormF({ host }: { host: HostSettings }) {
     else setError(err);
   };
   const warnsFor = (key: string) => next.warnings.filter((w) => w.key === key).map((w) => w.message);
-  const usePath = draft.command === null;
+  const onPath = resolve({ ...draft, command: null }, !!host.captureError).command.path ?? "";
   const cmdWarn = warnsFor("agent.claude.command");
 
   const envTable = (table: Table) => (
@@ -1203,15 +1203,21 @@ function HostFormF({ host }: { host: HostSettings }) {
       <div className={locked ? s.lockedArea : undefined}>
         <section className={s.tomlSection}>
           <h3 className={s.tomlHead}>
-            Environment for every session — and the daemon's own children <code>[env]</code>
+            Environment <code>[env]</code>
           </h3>
+          <p className={s.sectionHelp}>
+            Added to every session's environment, and to the daemon's own children (<code>bp</code>, <code>git</code>). Applied on top
+            of the login-shell environment. <code>${"{VAR}"}</code> reads the value from below, <code>VAR = false</code> removes the
+            variable, <code>$$</code> is a literal <code>$</code>.
+          </p>
           {envTable("env")}
         </section>
 
         <section className={s.tomlSection}>
           <h3 className={s.tomlHead}>
-            Regular terminals <code>[terminal]</code>
+            Terminal <code>[terminal]</code>
           </h3>
+          <p className={s.sectionHelp}>Regular terminals: started as login shells (<code>-l</code>). Claude terminals don't use a shell.</p>
           <div className={s.field} data-dirty={draft.shell !== host.file.shell}>
             <div className={s.fieldHead}>
               Shell <span className={s.pathHint}>shell</span>
@@ -1231,7 +1237,7 @@ function HostFormF({ host }: { host: HostSettings }) {
               value={draft.shell ?? ""}
               onChange={(e) => setDraft({ ...draft, shell: e.target.value || null })}
             />
-            <p className={s.fieldHelp}>Regular terminals start this as a login shell (<code>-l</code>). Leave empty for the default.</p>
+            <p className={s.fieldHelp}>Leave empty for the default.</p>
           </div>
         </section>
 
@@ -1296,37 +1302,24 @@ function HostFormF({ host }: { host: HostSettings }) {
                 />
               </Info>
             </div>
-            <label className={s.radio}>
-              <input type="radio" disabled={locked} checked={usePath} onChange={() => setDraft({ ...draft, command: null })} />
-              Find <code>claude</code> on PATH
-            </label>
-            <label className={s.radio}>
-              <input
-                type="radio"
-                disabled={locked}
-                checked={!usePath}
-                onChange={() => setDraft({ ...draft, command: host.file.command ?? "" })}
-              />
-              Use this file:
-              <input
-                className={s.mono}
-                style={{ flex: 1 }}
-                disabled={locked || usePath}
-                placeholder="/absolute/path/to/claude"
-                value={draft.command ?? ""}
-                onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-              />
-            </label>
-            {!usePath && draft.command && !draft.command.startsWith("/") && (
+            <input
+              className={s.mono}
+              style={{ width: "100%" }}
+              disabled={locked}
+              placeholder={onPath}
+              value={draft.command ?? ""}
+              onChange={(e) => setDraft({ ...draft, command: e.target.value || null })}
+            />
+            {draft.command && !draft.command.startsWith("/") && (
               <div className={s.warnText}>Must be an absolute path. <code>${"{VAR}"}</code> works, e.g. <code>${"{HOME}"}/.local/bin/claude</code>.</div>
             )}
             <p className={s.fieldHelp}>
-              Claude terminals run this binary directly — no shell in between. PATH means the PATH a Claude terminal gets, after both
-              environment tables above.
+              Claude terminals run this binary directly — no shell in between. Leave empty to find <code>claude</code> on the PATH a Claude terminal gets (after{" "}
+              <code>[env]</code> and <code>[agent.claude.env]</code>).
             </p>
           </div>
   
-          <section className={s.tomlSection} data-nested="true">
+          <section className={s.tomlSection} data-sub="true">
             <h3 className={s.tomlHead}>
               Environment for Claude terminals, on top of [env] <code>[agent.claude.env]</code>
             </h3>
