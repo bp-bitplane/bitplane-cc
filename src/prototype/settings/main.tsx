@@ -8,7 +8,7 @@ import { Sidebar } from "../../sidebar/Sidebar";
 import { mockBackend, plane, planesModel, seed, session, sessionsById } from "../../test/fixtures";
 import { SCENARIOS, type Scenario, setScenario, useSettings } from "./model";
 import s from "./proto.module.css";
-import { VariantA, VariantB, VariantC, VariantD, VariantE } from "./variants";
+import { VariantA, VariantB, VariantC, VariantD, VariantE, VariantF } from "./variants";
 
 mockBackend();
 seed({
@@ -28,6 +28,7 @@ const VARIANTS = [
   { key: "C", name: "Side panel · TOML text", C: VariantC },
   { key: "D", name: "B with a plain table, click to edit", C: VariantD },
   { key: "E", name: "A with a plain table, click to edit, Save", C: VariantE },
+  { key: "F", name: "E + launch settings as a form, in-effect behind ⓘ", C: VariantF },
 ];
 
 function useParam(name: string, fallback: string): [string, (v: string) => void] {
