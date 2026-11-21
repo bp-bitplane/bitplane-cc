@@ -1,9 +1,9 @@
 // PROTOTYPE smoke test: every variant renders in every scenario.
 import { act, render, screen } from "@testing-library/react";
 import { SCENARIOS, setScenario } from "./model";
-import { VariantA, VariantB, VariantC } from "./variants";
+import { VariantA, VariantB, VariantC, VariantD } from "./variants";
 
-describe.each([["A", VariantA], ["B", VariantB], ["C", VariantC]] as const)("variant %s", (_, V) => {
+describe.each([["A", VariantA], ["B", VariantB], ["C", VariantC], ["D", VariantD]] as const)("variant %s", (_, V) => {
   it.each(SCENARIOS)("%s", (scenario) => {
     act(() => setScenario(scenario));
     render(<V />);

@@ -63,3 +63,17 @@
 .panelScroll details { margin-bottom: 10px; } .panelScroll summary { cursor: pointer; color: var(--dim); font: 12px var(--mono); padding: 4px 0; }
 .code { width: 100%; font: 12px/1.5 var(--mono); background: var(--bg); color: var(--text); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 8px; resize: vertical; user-select: text; }
 .gutter { font-size: 11px; color: var(--dim); display: flex; flex-direction: column; gap: 3px; padding: 4px 2px; word-break: break-all; }
+.grid td { padding: 0; height: 30px; vertical-align: middle; }
+.grid td.monoDim, .grid td.nextVal, .grid td:first-child:not(:has(span[role=button])) { padding: 0 8px; }
+.cellText { display: block; padding: 6px 8px; cursor: text; border-radius: 4px; word-break: break-all; }
+.cellText:hover:not([data-disabled="true"]) { background: var(--hover); }
+.cellText[data-empty="true"] { color: var(--faint); }
+.cellText[data-disabled="true"] { cursor: default; opacity: .5; }
+.inlineCell { display: inline-block; padding: 2px 4px; }
+.cellInput { width: 100%; border-radius: 4px; padding: 5px 7px; border-color: var(--accent); }
+.unsetText { display: block; padding: 6px 8px; font: italic 12px var(--mono); color: var(--faint); text-decoration: line-through; }
+.rowActions { white-space: nowrap; text-align: right; }
+.rowActions button { opacity: 0; font-size: 11px; color: var(--dim); }
+.grid tr:hover .rowActions button, .rowActions button:focus { opacity: 1; }
+.addRow .cellText { color: var(--faint); }
+.toggleText { padding: 2px 6px; color: var(--accent-text); font-family: var(--mono); font-size: 12px; }

@@ -589,3 +589,237 @@ function diff(a: HostSettings["file"], b: HostSettings["file"]): Op[] {
     if (a[field] !== b[field]) ops.push({ op: "setScalar", field, value: b[field] });
   return ops;
 }
+
+/* ───────────── D: B's page, env as a plain table, click a cell to edit ───────────── */
+
+export function VariantD() {
+  const st = useSettings();
+  return (
+    <div className={s.page}>
+      <header className={s.pageHead}>
+        <span>Settings</span>
+        <span className="muted">a tab like any other · ⌘,</span>
+      </header>
+      <div className={s.pageScroll}>
+        <section className={s.card}>
+          <h2>cc</h2>
+          <AccentPicker accent={st.accent} onPick={setAccent} />
+        </section>
+        {st.hosts.map((h) => (
+          <HostTableD key={`${h.hostId}-${st.scenario}`} host={h} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HostTableD({ host }: { host: HostSettings }) {
+  const { effective, next } = useResolved(host);
+  const [conflict, setConflict] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const locked = host.fileStatus.kind === "invalid";
+  const send = (ops: Op[]) => {
+    const e = applyOps(host.hostId, host.revision, ops);
+    if (e === "SettingsChanged") setConflict(e);
+    else setErr(e);
+  };
+  const scalars: { label: string; hint: string; field: "command" | "shell"; value: string | null; fallback: string; now: string }[] = [
+    { label: "claude binary", hint: "[agent.claude] command", field: "command", value: host.file.command, fallback: `look up on PATH`, now: `${effective.command.path} (${effective.command.source})` },
+    { label: "Shell", hint: "[terminal] shell", field: "shell", value: host.file.shell, fallback: "$SHELL → account → /bin/sh", now: `${effective.shell.path} (${effective.shell.source})` },
+  ];
+  return (
+    <section className={s.card}>
+      <h2>
+        {host.label} <span className={s.pathHint}>{host.path}</span>
+      </h2>
+      <HostNotices host={host} conflict={conflict} />
+      {err && <div className={s.errText}>{err}</div>}
+      {TABLES.map(({ table, title, hint }) => (
+        <div key={table}>
+          <div className={s.subhead}>
+            {title} <span className={s.pathHint}>{hint}</span>
+          </div>
+          <table className={`${s.table} ${s.grid}`}>
+            <thead>
+              <tr>
+                <th style={{ width: "22%" }}>Variable</th>
+                <th style={{ width: "30%" }}>Value</th>
+                <th>In effect</th>
+                <th>After restart</th>
+                <th style={{ width: 70 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(host.file[table]).map(([k, v]) => {
+                const wkey = `${table === "env" ? "env." : "agent.claude.env."}${k}`;
+                const ws = next.warnings.filter((w) => w.key === wkey);
+                const changed = next[table][k] !== effective[table][k];
+                return (
+                  <tr key={k} data-changed={changed}>
+                    <td>
+                      <InlineCell
+                        text={k}
+                        disabled={locked}
+                        mono
+                        transform={(x) => x.toUpperCase()}
+                        onCommit={(nk) =>
+                          nk && nk !== k && send([{ op: "remove", table, key: k }, { op: "set", table, key: nk, value: v }])
+                        }
+                      />
+                    </td>
+                    <td>
+                      {v === false ? (
+                        <span className={s.unsetText}>unset</span>
+                      ) : (
+                        <InlineCell
+                          text={v}
+                          disabled={locked}
+                          mono
+                          empty='""'
+                          onCommit={(nv) => nv !== v && send([{ op: "set", table, key: k, value: nv }])}
+                        />
+                      )}
+                      {ws.map((w) => (
+                        <div key={w.message} className={s.warnText}>
+                          ⚠ {w.message}
+                        </div>
+                      ))}
+                    </td>
+                    <td className={s.monoDim}>{show(effective[table][k])}</td>
+                    <td className={changed ? s.nextVal : s.monoDim}>{changed ? show(next[table][k]) : "same"}</td>
+                    <td className={s.rowActions}>
+                      {!locked && (
+                        <>
+                          <button
+                            type="button"
+                            title={v === false ? "Set a value instead" : "Unset (VAR = false)"}
+                            onClick={() => send([{ op: "set", table, key: k, value: v === false ? "" : false }])}
+                          >
+                            {v === false ? "set" : "unset"}
+                          </button>
+                          <button type="button" title="Remove from the file" onClick={() => send([{ op: "remove", table, key: k }])}>
+                            ✕
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!locked && (
+                <tr className={s.addRow}>
+                  <td colSpan={5}>
+                    <InlineCell
+                      text=""
+                      mono
+                      empty="+ Add variable"
+                      transform={(x) => x.toUpperCase()}
+                      onCommit={(nk) => nk && send([{ op: "set", table, key: nk, value: "" }])}
+                    />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      <div className={s.subhead}>Launching</div>
+      <table className={`${s.table} ${s.grid}`}>
+        <tbody>
+          {scalars.map((x) => (
+            <tr key={x.field}>
+              <td style={{ width: "22%" }}>
+                {x.label} <span className={s.pathHint}>{x.hint}</span>
+              </td>
+              <td style={{ width: "30%" }}>
+                <InlineCell
+                  text={x.value ?? ""}
+                  disabled={locked}
+                  mono
+                  empty={x.fallback}
+                  onCommit={(nv) => nv !== (x.value ?? "") && send([{ op: "setScalar", field: x.field, value: nv || null }])}
+                />
+              </td>
+              <td className={s.monoDim} colSpan={3}>
+                {x.now}
+              </td>
+            </tr>
+          ))}
+          <tr>
+            <td>
+              Login-shell capture <span className={s.pathHint}>[capture]</span>
+            </td>
+            <td>
+              <button
+                type="button"
+                className={s.toggleText}
+                disabled={locked}
+                onClick={() => send([{ op: "setScalar", field: "captureEnabled", value: !host.file.captureEnabled }])}
+              >
+                {host.file.captureEnabled ? "on" : "off"}
+              </button>
+              {" · timeout "}
+              <InlineCell
+                text={String(host.file.captureTimeout)}
+                disabled={locked}
+                mono
+                inline
+                onCommit={(nv) => Number(nv) !== host.file.captureTimeout && send([{ op: "setScalar", field: "captureTimeout", value: Number(nv) }])}
+              />
+              s
+            </td>
+            <td className={s.monoDim} colSpan={3}>
+              {host.captureError ? `failed: ${host.captureError}` : "ok"}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <Unknown host={host} />
+    </section>
+  );
+}
+
+/** Text until clicked; then an input that saves on Enter or blur, Esc cancels. */
+function InlineCell(p: {
+  text: string;
+  onCommit: (v: string) => void;
+  disabled?: boolean;
+  mono?: boolean;
+  empty?: string;
+  inline?: boolean;
+  transform?: (v: string) => string;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  if (editing === null)
+    return (
+      <span
+        role="button"
+        tabIndex={p.disabled ? -1 : 0}
+        className={`${s.cellText} ${p.mono ? s.mono : ""} ${p.inline ? s.inlineCell : ""}`}
+        data-disabled={p.disabled}
+        data-empty={!p.text}
+        onClick={() => !p.disabled && setEditing(p.text)}
+        onKeyDown={(e) => e.key === "Enter" && !p.disabled && setEditing(p.text)}
+      >
+        {p.text || p.empty || " "}
+      </span>
+    );
+  return (
+    <input
+      // biome-ignore lint/a11y/noAutofocus: prototype
+      autoFocus
+      className={`${s.cellInput} ${p.mono ? s.mono : ""}`}
+      style={p.inline ? { width: 50 } : undefined}
+      value={editing}
+      onChange={(e) => setEditing(p.transform ? p.transform(e.target.value) : e.target.value)}
+      onBlur={() => {
+        p.onCommit(editing);
+        setEditing(null);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") setEditing(null);
+      }}
+    />
+  );
+}
