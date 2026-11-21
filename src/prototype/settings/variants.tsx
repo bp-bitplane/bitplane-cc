@@ -1117,6 +1117,83 @@ function HostFormF({ host }: { host: HostSettings }) {
   const usePath = draft.command === null;
   const cmdWarn = warnsFor("agent.claude.command");
 
+  const envTable = (table: Table) => (
+    <table className={`${s.table} ${s.grid}`}>
+      <thead>
+        <tr>
+          <th style={{ width: "32%" }}>Variable</th>
+          <th>Value</th>
+          <th style={{ width: 96 }} />
+        </tr>
+      </thead>
+      <tbody>
+        {Object.entries(draft[table]).map(([k, v]) => {
+          const dirty = host.file[table][k] !== v;
+          const wkey = `${table === "env" ? "env." : "agent.claude.env."}${k}`;
+          const ws = dirty ? [] : warnsFor(wkey);
+          const pendingRestart = !dirty && next[table][k] !== effective[table][k];
+          return (
+            <tr key={k} data-dirty={dirty}>
+              <td>
+                <InlineCell
+                  text={k}
+                  disabled={locked}
+                  mono
+                  transform={(x) => x.toUpperCase()}
+                  onCommit={(nk) => nk && nk !== k && setDraft(edit(drop(draft, table, k), table, nk, v))}
+                />
+              </td>
+              <td>
+                {v === false ? (
+                  <span className={s.unsetText}>unset</span>
+                ) : (
+                  <InlineCell text={v} disabled={locked} mono empty='""' onCommit={(nv) => setDraft(edit(draft, table, k, nv))} />
+                )}
+              </td>
+              <td className={s.rowActions} data-sticky={ws.length > 0 || pendingRestart}>
+                <Info tone={ws.length ? "warn" : pendingRestart ? "pending" : undefined}>
+                  <EffectLines
+                    now={show(effective[table][k])}
+                    next={show(next[table][k])}
+                    dirty={dirty}
+                    warnings={ws}
+                  />
+                </Info>
+                {!locked && (
+                  <>
+                    <button
+                      type="button"
+                      title={v === false ? "Set a value instead" : "Unset (VAR = false)"}
+                      onClick={() => setDraft(edit(draft, table, k, v === false ? "" : false))}
+                    >
+                      {v === false ? "set" : "unset"}
+                    </button>
+                    <button type="button" title="Remove from the file" onClick={() => setDraft(drop(draft, table, k))}>
+                      ✕
+                    </button>
+                  </>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+        {!locked && (
+          <tr className={s.addRow}>
+            <td colSpan={3}>
+              <InlineCell
+                text=""
+                mono
+                empty="+ Add variable"
+                transform={(x) => x.toUpperCase()}
+                onCommit={(nk) => nk && setDraft(edit(draft, table, nk, ""))}
+              />
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  );
+
   return (
     <>
       <h2>
@@ -1124,193 +1201,138 @@ function HostFormF({ host }: { host: HostSettings }) {
       </h2>
       <HostNotices host={host} conflict={conflict} />
       <div className={locked ? s.lockedArea : undefined}>
-        {TABLES.map(({ table, title, hint }) => (
-          <div key={table}>
-            <div className={s.subhead}>
-              {title} <span className={s.pathHint}>{hint}</span>
+        <section className={s.tomlSection}>
+          <div className={s.tomlHead}>
+            <code>[env]</code> <span>Environment for every session — and the daemon's own children</span>
+          </div>
+          {envTable("env")}
+        </section>
+
+        <section className={s.tomlSection}>
+          <div className={s.tomlHead}>
+            <code>[terminal]</code> <span>Regular terminals</span>
+          </div>
+          <div className={s.field} data-dirty={draft.shell !== host.file.shell}>
+            <div className={s.fieldHead}>
+              Shell <span className={s.pathHint}>shell</span>
+              <Info>
+                <EffectLines
+                  now={`${effective.shell.path} (${effective.shell.source === "fallback" ? "default" : "set here"})`}
+                  next={`${next.shell.path} (${next.shell.source === "fallback" ? "default" : "set here"})`}
+                  dirty={draft.shell !== host.file.shell}
+                />
+              </Info>
             </div>
-            <table className={`${s.table} ${s.grid}`}>
-              <thead>
-                <tr>
-                  <th style={{ width: "32%" }}>Variable</th>
-                  <th>Value</th>
-                  <th style={{ width: 96 }} />
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(draft[table]).map(([k, v]) => {
-                  const dirty = host.file[table][k] !== v;
-                  const wkey = `${table === "env" ? "env." : "agent.claude.env."}${k}`;
-                  const ws = dirty ? [] : warnsFor(wkey);
-                  const pendingRestart = !dirty && next[table][k] !== effective[table][k];
-                  return (
-                    <tr key={k} data-dirty={dirty}>
-                      <td>
-                        <InlineCell
-                          text={k}
-                          disabled={locked}
-                          mono
-                          transform={(x) => x.toUpperCase()}
-                          onCommit={(nk) => nk && nk !== k && setDraft(edit(drop(draft, table, k), table, nk, v))}
-                        />
-                      </td>
-                      <td>
-                        {v === false ? (
-                          <span className={s.unsetText}>unset</span>
-                        ) : (
-                          <InlineCell text={v} disabled={locked} mono empty='""' onCommit={(nv) => setDraft(edit(draft, table, k, nv))} />
-                        )}
-                      </td>
-                      <td className={s.rowActions} data-sticky={ws.length > 0 || pendingRestart}>
-                        <Info tone={ws.length ? "warn" : pendingRestart ? "pending" : undefined}>
-                          <EffectLines
-                            now={show(effective[table][k])}
-                            next={show(next[table][k])}
-                            dirty={dirty}
-                            warnings={ws}
-                          />
-                        </Info>
-                        {!locked && (
-                          <>
-                            <button
-                              type="button"
-                              title={v === false ? "Set a value instead" : "Unset (VAR = false)"}
-                              onClick={() => setDraft(edit(draft, table, k, v === false ? "" : false))}
-                            >
-                              {v === false ? "set" : "unset"}
-                            </button>
-                            <button type="button" title="Remove from the file" onClick={() => setDraft(drop(draft, table, k))}>
-                              ✕
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {!locked && (
-                  <tr className={s.addRow}>
-                    <td colSpan={3}>
-                      <InlineCell
-                        text=""
-                        mono
-                        empty="+ Add variable"
-                        transform={(x) => x.toUpperCase()}
-                        onCommit={(nk) => nk && setDraft(edit(draft, table, nk, ""))}
-                      />
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        ))}
-
-        <div className={s.subhead}>Launching</div>
-
-        <div className={s.field} data-dirty={draft.command !== host.file.command}>
-          <div className={s.fieldHead}>
-            Claude binary <span className={s.pathHint}>[agent.claude] command</span>
-            <Info tone={cmdWarn.length ? "warn" : undefined}>
-              <EffectLines
-                now={`${effective.command.path} (${effective.command.source === "path" ? "found on PATH" : "set here"})`}
-                next={`${next.command.path} (${next.command.source === "path" ? "found on PATH" : "set here"})`}
-                dirty={draft.command !== host.file.command}
-                warnings={cmdWarn}
-              />
-            </Info>
-          </div>
-          <label className={s.radio}>
-            <input type="radio" disabled={locked} checked={usePath} onChange={() => setDraft({ ...draft, command: null })} />
-            Find <code>claude</code> on PATH
-          </label>
-          <label className={s.radio}>
-            <input
-              type="radio"
-              disabled={locked}
-              checked={!usePath}
-              onChange={() => setDraft({ ...draft, command: host.file.command ?? "" })}
-            />
-            Use this file:
             <input
               className={s.mono}
-              style={{ flex: 1 }}
-              disabled={locked || usePath}
-              placeholder="/absolute/path/to/claude"
-              value={draft.command ?? ""}
-              onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-            />
-          </label>
-          {!usePath && draft.command && !draft.command.startsWith("/") && (
-            <div className={s.warnText}>Must be an absolute path. <code>${"{VAR}"}</code> works, e.g. <code>${"{HOME}"}/.local/bin/claude</code>.</div>
-          )}
-          <p className={s.fieldHelp}>
-            Claude terminals run this binary directly — no shell in between. PATH means the PATH a Claude terminal gets, after both
-            environment tables above.
-          </p>
-        </div>
-
-        <div className={s.field} data-dirty={draft.shell !== host.file.shell}>
-          <div className={s.fieldHead}>
-            Shell <span className={s.pathHint}>[terminal] shell</span>
-            <Info>
-              <EffectLines
-                now={`${effective.shell.path} (${effective.shell.source === "fallback" ? "default" : "set here"})`}
-                next={`${next.shell.path} (${next.shell.source === "fallback" ? "default" : "set here"})`}
-                dirty={draft.shell !== host.file.shell}
-              />
-            </Info>
-          </div>
-          <input
-            className={s.mono}
-            style={{ width: "100%" }}
-            disabled={locked}
-            placeholder="Default: $SHELL, else your account's shell, else /bin/sh"
-            value={draft.shell ?? ""}
-            onChange={(e) => setDraft({ ...draft, shell: e.target.value || null })}
-          />
-          <p className={s.fieldHelp}>Regular terminals start this as a login shell (<code>-l</code>). Leave empty for the default.</p>
-        </div>
-
-        <div
-          className={s.field}
-          data-dirty={draft.captureEnabled !== host.file.captureEnabled || draft.captureTimeout !== host.file.captureTimeout}
-        >
-          <div className={s.fieldHead}>
-            Login-shell environment <span className={s.pathHint}>[capture]</span>
-            <Info tone={host.captureError ? "warn" : undefined}>
-              <EffectLines
-                now={!host.loaded.captureEnabled ? "off" : host.captureError ? "failed — using the daemon's own environment" : "captured at daemon start"}
-                warnings={host.captureError ? [host.captureError] : []}
-              />
-            </Info>
-          </div>
-          <label className={s.radio}>
-            <input
-              type="checkbox"
+              style={{ width: "100%" }}
               disabled={locked}
-              checked={draft.captureEnabled}
-              onChange={(e) => setDraft({ ...draft, captureEnabled: e.target.checked })}
+              placeholder="Default: $SHELL, else your account's shell, else /bin/sh"
+              value={draft.shell ?? ""}
+              onChange={(e) => setDraft({ ...draft, shell: e.target.value || null })}
             />
-            Start sessions from my login shell's environment
-          </label>
-          <label className={s.radio} style={{ paddingLeft: 22 }}>
-            Give up after
-            <input
-              type="number"
-              min={1}
-              style={{ width: 64 }}
-              disabled={locked || !draft.captureEnabled}
-              value={draft.captureTimeout}
-              onChange={(e) => setDraft({ ...draft, captureTimeout: Number(e.target.value) || draft.captureTimeout })}
-            />
-            seconds
-          </label>
-          <p className={s.fieldHelp}>
-            The daemon runs your shell once at startup and copies its environment (PATH from <code>.zprofile</code>, nvm, …). Off, or
-            if it fails or times out, sessions start from the daemon's own environment. The tables above apply on top either way.
-          </p>
-        </div>
+            <p className={s.fieldHelp}>Regular terminals start this as a login shell (<code>-l</code>). Leave empty for the default.</p>
+          </div>
+        </section>
+
+        <section className={s.tomlSection}>
+          <div className={s.tomlHead}>
+            <code>[capture]</code> <span>Login-shell environment</span>
+          </div>
+          <div
+            className={s.field}
+            data-dirty={draft.captureEnabled !== host.file.captureEnabled || draft.captureTimeout !== host.file.captureTimeout}
+          >
+            <div className={s.fieldHead}>
+              Capture <span className={s.pathHint}>enabled · timeout_secs</span>
+              <Info tone={host.captureError ? "warn" : undefined}>
+                <EffectLines
+                  now={!host.loaded.captureEnabled ? "off" : host.captureError ? "failed — using the daemon's own environment" : "captured at daemon start"}
+                  warnings={host.captureError ? [host.captureError] : []}
+                />
+              </Info>
+            </div>
+            <label className={s.radio}>
+              <input
+                type="checkbox"
+                disabled={locked}
+                checked={draft.captureEnabled}
+                onChange={(e) => setDraft({ ...draft, captureEnabled: e.target.checked })}
+              />
+              Start sessions from my login shell's environment
+            </label>
+            <label className={s.radio} style={{ paddingLeft: 22 }}>
+              Give up after
+              <input
+                type="number"
+                min={1}
+                style={{ width: 64 }}
+                disabled={locked || !draft.captureEnabled}
+                value={draft.captureTimeout}
+                onChange={(e) => setDraft({ ...draft, captureTimeout: Number(e.target.value) || draft.captureTimeout })}
+              />
+              seconds
+            </label>
+            <p className={s.fieldHelp}>
+              The daemon runs your shell once at startup and copies its environment (PATH from <code>.zprofile</code>, nvm, …). Off, or
+              if it fails or times out, sessions start from the daemon's own environment. <code>[env]</code> applies on top either way.
+            </p>
+          </div>
+        </section>
+
+        <section className={s.tomlSection}>
+          <div className={s.tomlHead}>
+            <code>[agent.claude]</code> <span>Claude terminals</span>
+          </div>
+          <div className={s.field} data-dirty={draft.command !== host.file.command}>
+            <div className={s.fieldHead}>
+              Claude binary <span className={s.pathHint}>command</span>
+              <Info tone={cmdWarn.length ? "warn" : undefined}>
+                <EffectLines
+                  now={`${effective.command.path} (${effective.command.source === "path" ? "found on PATH" : "set here"})`}
+                  next={`${next.command.path} (${next.command.source === "path" ? "found on PATH" : "set here"})`}
+                  dirty={draft.command !== host.file.command}
+                  warnings={cmdWarn}
+                />
+              </Info>
+            </div>
+            <label className={s.radio}>
+              <input type="radio" disabled={locked} checked={usePath} onChange={() => setDraft({ ...draft, command: null })} />
+              Find <code>claude</code> on PATH
+            </label>
+            <label className={s.radio}>
+              <input
+                type="radio"
+                disabled={locked}
+                checked={!usePath}
+                onChange={() => setDraft({ ...draft, command: host.file.command ?? "" })}
+              />
+              Use this file:
+              <input
+                className={s.mono}
+                style={{ flex: 1 }}
+                disabled={locked || usePath}
+                placeholder="/absolute/path/to/claude"
+                value={draft.command ?? ""}
+                onChange={(e) => setDraft({ ...draft, command: e.target.value })}
+              />
+            </label>
+            {!usePath && draft.command && !draft.command.startsWith("/") && (
+              <div className={s.warnText}>Must be an absolute path. <code>${"{VAR}"}</code> works, e.g. <code>${"{HOME}"}/.local/bin/claude</code>.</div>
+            )}
+            <p className={s.fieldHelp}>
+              Claude terminals run this binary directly — no shell in between. PATH means the PATH a Claude terminal gets, after both
+              environment tables above.
+            </p>
+          </div>
+  
+          <section className={s.tomlSection} data-nested="true">
+            <div className={s.tomlHead}>
+              <code>[agent.claude.env]</code> <span>Environment for Claude terminals, on top of [env]</span>
+            </div>
+            {envTable("agentClaudeEnv")}
+          </section>
+        </section>
 
         <Unknown host={host} />
       </div>

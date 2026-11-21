@@ -97,3 +97,8 @@
 .fieldHelp { margin: 0; color: var(--faint); font-size: 12px; line-height: 1.45; }
 .fieldHelp code, .radio code, .field .warnText code { font: 11px var(--mono); }
 .radio { display: flex; align-items: center; gap: 6px; color: var(--dim); }
+.tomlSection { margin-top: 18px; }
+.tomlSection[data-nested="true"] { margin: 10px 0 0 12px; padding-left: 10px; border-left: 1px solid var(--line); }
+.tomlHead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.tomlHead code { font: 600 12px var(--mono); color: var(--accent-text); }
+.tomlHead span { color: var(--dim); font-size: 12px; }
