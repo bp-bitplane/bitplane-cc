@@ -1337,7 +1337,7 @@ function HostFormF({ host }: { host: HostSettings }) {
           </section>
         </section>
 
-        <Unknown host={host} />
+        <Unknown host={host} heading />
       </div>
       <div className={s.saveBar} data-dirty={ops.length > 0}>
         {error && <span className={s.errText}>{error}</span>}

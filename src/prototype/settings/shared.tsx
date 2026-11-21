@@ -94,12 +94,19 @@ export function HostNotices({ host, conflict, restartInCard }: { host: HostSetti
   );
 }
 
-export function Unknown({ host }: { host: HostSettings }) {
+export function Unknown({ host, heading }: { host: HostSettings; heading?: boolean }) {
   const keys = Object.entries(host.file.unknown);
   if (!keys.length) return null;
   return (
-    <div className={s.unknown}>
-      <div className={s.subhead}>Set in the file, not editable here</div>
+    <div className={heading ? s.tomlSection : s.unknown}>
+      {heading ? (
+        <>
+          <h3 className={s.tomlHead}>Other keys</h3>
+          <p className={s.sectionHelp}>In the file, but not known to this daemon: ignored, and not editable here.</p>
+        </>
+      ) : (
+        <div className={s.subhead}>Set in the file, not editable here</div>
+      )}
       {keys.map(([k, v]) => (
         <div key={k} className={s.mono}>
           {k} = {v} <span className="muted">— not known to this daemon; ignored</span>
