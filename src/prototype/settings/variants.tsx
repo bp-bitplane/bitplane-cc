@@ -1202,16 +1202,16 @@ function HostFormF({ host }: { host: HostSettings }) {
       <HostNotices host={host} conflict={conflict} />
       <div className={locked ? s.lockedArea : undefined}>
         <section className={s.tomlSection}>
-          <div className={s.tomlHead}>
-            <code>[env]</code> <span>Environment for every session — and the daemon's own children</span>
-          </div>
+          <h3 className={s.tomlHead}>
+            Environment for every session — and the daemon's own children <code>[env]</code>
+          </h3>
           {envTable("env")}
         </section>
 
         <section className={s.tomlSection}>
-          <div className={s.tomlHead}>
-            <code>[terminal]</code> <span>Regular terminals</span>
-          </div>
+          <h3 className={s.tomlHead}>
+            Regular terminals <code>[terminal]</code>
+          </h3>
           <div className={s.field} data-dirty={draft.shell !== host.file.shell}>
             <div className={s.fieldHead}>
               Shell <span className={s.pathHint}>shell</span>
@@ -1236,9 +1236,9 @@ function HostFormF({ host }: { host: HostSettings }) {
         </section>
 
         <section className={s.tomlSection}>
-          <div className={s.tomlHead}>
-            <code>[capture]</code> <span>Login-shell environment</span>
-          </div>
+          <h3 className={s.tomlHead}>
+            Login-shell environment <code>[capture]</code>
+          </h3>
           <div
             className={s.field}
             data-dirty={draft.captureEnabled !== host.file.captureEnabled || draft.captureTimeout !== host.file.captureTimeout}
@@ -1281,9 +1281,9 @@ function HostFormF({ host }: { host: HostSettings }) {
         </section>
 
         <section className={s.tomlSection}>
-          <div className={s.tomlHead}>
-            <code>[agent.claude]</code> <span>Claude terminals</span>
-          </div>
+          <h3 className={s.tomlHead}>
+            Claude terminals <code>[agent.claude]</code>
+          </h3>
           <div className={s.field} data-dirty={draft.command !== host.file.command}>
             <div className={s.fieldHead}>
               Claude binary <span className={s.pathHint}>command</span>
@@ -1327,9 +1327,9 @@ function HostFormF({ host }: { host: HostSettings }) {
           </div>
   
           <section className={s.tomlSection} data-nested="true">
-            <div className={s.tomlHead}>
-              <code>[agent.claude.env]</code> <span>Environment for Claude terminals, on top of [env]</span>
-            </div>
+            <h3 className={s.tomlHead}>
+              Environment for Claude terminals, on top of [env] <code>[agent.claude.env]</code>
+            </h3>
             {envTable("agentClaudeEnv")}
           </section>
         </section>
