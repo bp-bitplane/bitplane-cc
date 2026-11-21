@@ -98,7 +98,7 @@
 .fieldHelp code, .radio code, .field .warnText code { font: 11px var(--mono); }
 .radio { display: flex; align-items: center; gap: 6px; color: var(--dim); }
 .tomlSection { margin-top: 18px; }
-.tomlSection[data-sub="true"] { margin-top: 14px; }
+.tomlSection[data-sub="true"] { margin-top: 14px; padding-left: 12px; }
 .tomlHead { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 15px; font-weight: 600; color: var(--text); }
 .tomlHead code { font: 400 11px var(--mono); color: var(--faint); }
 .tomlSection[data-sub="true"] > .tomlHead { font-size: 13px; color: var(--dim); }
