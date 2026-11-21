@@ -64,6 +64,10 @@ _Avoid_: Agent binding, resume token
 Bringing the sessions back after the session daemon itself restarted, each with a fresh shell in its plane and its agent session resumed.
 _Avoid_: Reattach (relaunching cc or reloading reattaches to the running sessions, with a snapshot), persist
 
+**Daemon restart**:
+Stopping the session daemon on request so a new daemon instance starts and restores every session; it is how saved settings and newly installed tools take effect.
+_Avoid_: Restart (alone; that is restarting an exited session), reload
+
 **Sidebar**:
 The resizable plane list on the left edge, where planes and their tabs are picked.
 _Avoid_: Plane list, navigator
