@@ -450,13 +450,7 @@ export type HealthCheck =
 /**  One step of one member, starting or ending. */
 export type MemberProgress = {
 	member: MemberRef,
-	step: ProgressStep,
-	state: StepState,
-	/**  The script's name, on `script` steps only. */
-	name?: string | null,
-	/**  Where the script's output is tee'd, on `script` steps only. */
-	log?: string | null,
-};
+} & ProgressStep;
 
 /**  What a member is a worktree of. */
 export type MemberRef = string;
@@ -917,7 +911,9 @@ export type ProgressEvent = {
 /**  Another `bp` holds a lock this run needs. */
 { event: "waiting"; object: string };
 
-export type ProgressStep = "fetch" | "worktree" | "script";
+export type ProgressStep = { step: "fetch"; state: StepState } | { step: "worktree"; state: StepState } | { step: "script"; state: StepState; name: ScriptName; 
+/**  Where the script's output is tee'd. */
+log: string };
 
 /**
  *  Register a project from a URL.
@@ -1134,6 +1130,12 @@ export type Response = {
 } & PlaneRemoved | {
 	action: "plane_scripts",
 } & ScriptsRun;
+
+/**
+ *  A script's name: the same character set as a plane id, so a user-chosen name
+ *  is never trusted into a path.
+ */
+export type ScriptName = string;
 
 /**
  *  One script, and what became of it.
