@@ -10,6 +10,7 @@ import {
   createPlane,
   useStore,
 } from "../store/store";
+import { allowsNoFetch, DEFAULT_BRANCH_INTENT } from "./branchIntent";
 import styles from "./CreatePlaneDialog.module.css";
 import { EnvelopeDetails, Log } from "./CreateProgress";
 import { idFromBranch, planeIdProblem } from "./planeId";
@@ -131,7 +132,7 @@ function ProjectsForm({
   );
   const [id, setId] = useState(initial?.id ?? "");
   const [idEdited, setIdEdited] = useState(Boolean(initial?.id));
-  const [intent, setIntent] = useState<BranchIntent>(initial?.intent ?? "resolve");
+  const [intent, setIntent] = useState<BranchIntent>(initial?.intent ?? DEFAULT_BRANCH_INTENT);
   const [noFetch, setNoFetch] = useState(initial?.noFetch ?? false);
   const [noScripts, setNoScripts] = useState(initial?.noScripts ?? false);
   const [search, setSearch] = useState("");
@@ -172,7 +173,7 @@ function ProjectsForm({
         (m): Member => ({ spec: m.spec, branch: m.branch.trim() === "" ? null : m.branch.trim() }),
       ),
       intent,
-      noFetch: intent !== "resolve" && noFetch,
+      noFetch: allowsNoFetch(intent) && noFetch,
       noScripts,
     };
     setBusy(true);
@@ -319,11 +320,11 @@ function ProjectsForm({
 
       <details className={styles.advanced}>
         <summary>Advanced</summary>
-        <label title={intent === "resolve" ? "Needs New or Existing" : undefined}>
+        <label title={allowsNoFetch(intent) ? undefined : "Needs New or Existing"}>
           <input
             type="checkbox"
-            disabled={intent === "resolve"}
-            checked={intent !== "resolve" && noFetch}
+            disabled={!allowsNoFetch(intent)}
+            checked={allowsNoFetch(intent) && noFetch}
             onChange={(e) => setNoFetch(e.target.checked)}
           />
           Skip fetch

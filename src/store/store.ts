@@ -3,6 +3,7 @@
  * current by full-state events, plus UI state that lives only here.
  */
 import { create } from "zustand";
+import { DEFAULT_BRANCH_INTENT } from "../create-plane/branchIntent";
 import {
   type AgentEvent,
   type AgentInfo,
@@ -544,7 +545,7 @@ export function openDuplicateDialog(plane: PlaneRow): void {
         id: "",
         branch: "",
         members: plane.members.map((spec) => ({ spec, branch: null })),
-        intent: "resolve",
+        intent: DEFAULT_BRANCH_INTENT,
         noFetch: false,
         noScripts: false,
       },
