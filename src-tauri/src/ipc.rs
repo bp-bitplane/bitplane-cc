@@ -15,8 +15,8 @@ use tauri_specta::{Builder, ErrorHandlingMode, Event, collect_commands, collect_
 
 use crate::agents::{AgentEvent, AgentKindInfo};
 use crate::app::{App, PlanesModel, Snapshot};
-use crate::bp::Project;
-use crate::create::{CreateArgs, CreateEvent};
+use crate::bp::{ErrorEnvelope, Project};
+use crate::create::{BranchIntent, CreateArgs, CreateEvent};
 use crate::daemon::{DaemonInfo, DaemonLink, DaemonStatus};
 use crate::diff::{self, DiffMode, FileContents, FileDiff, FileText};
 use crate::editor;
@@ -35,6 +35,23 @@ pub type DaemonState = Arc<DaemonLink>;
 
 /// Header carrying the session id on `pty_write`.
 pub const SESSION_HEADER: &str = "x-session-id";
+
+/// Rust types that `src/ipc/bp-contract.ts`, bp's generated wire types, also
+/// defines under the same name: `bindings.ts` imports them from there.
+macro_rules! bp_contract {
+    ($($name:ident),* $(,)?) => {
+        $(impl Type for $name {
+            fn definition(_: &mut specta::Types) -> specta::datatype::DataType {
+                specta_typescript::define(concat!("import(\"./bp-contract\").", stringify!($name))).into()
+            }
+        })*
+
+        #[cfg(test)]
+        const BP_CONTRACT_TYPES: &[&str] = &[$(stringify!($name)),*];
+    };
+}
+
+bp_contract!(ErrorEnvelope, BranchIntent);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 pub struct PlanesChanged(pub PlanesModel);
@@ -436,5 +453,19 @@ struct ChannelSink(Channel<InvokeResponseBody>);
 impl OutputSink for ChannelSink {
     fn send(&self, bytes: Vec<u8>) -> bool {
         self.0.send(InvokeResponseBody::Raw(bytes)).is_ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_bp_contract_type_is_exported_by_bp_contract_ts() {
+        let contract = include_str!("../../src/ipc/bp-contract.ts");
+        for name in super::BP_CONTRACT_TYPES {
+            assert!(
+                contract.contains(&format!("\nexport type {name} ")),
+                "src/ipc/bp-contract.ts has no `{name}`"
+            );
+        }
     }
 }

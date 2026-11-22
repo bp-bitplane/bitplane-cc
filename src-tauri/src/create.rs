@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::io::AsyncReadExt;
 
-use crate::bp::{self, Bp, Envelope, PlaneCreated};
+use crate::bp::{self, Bp, ErrorEnvelope, PlaneCreated};
 use crate::planes::{BITPLANE_DIR, PLANE_FILE, Source};
 
 /// Bytes of log kept per create; older output is dropped from the front.
@@ -36,19 +36,12 @@ pub struct Member {
     pub branch: Option<String>,
 }
 
-/// bp's own `BranchIntent`, spelled as bp spells it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BranchIntent {
     Resolve,
     RequireNew,
     RequireExisting,
-}
-
-impl Type for BranchIntent {
-    fn definition(_: &mut specta::Types) -> specta::datatype::DataType {
-        bp::contract_type("BranchIntent")
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Type)]
@@ -69,13 +62,13 @@ pub enum CreateStatus {
     /// Nothing is on disk; the dialog reopens.
     #[serde(rename_all = "camelCase")]
     NothingCreated {
-        envelope: Option<Envelope>,
+        envelope: Option<ErrorEnvelope>,
         retryable: bool,
     },
     /// A partial plane is left behind; only `bp destroy` cleans it up.
     #[serde(rename_all = "camelCase")]
     Partial {
-        envelope: Option<Envelope>,
+        envelope: Option<ErrorEnvelope>,
     },
 }
 
@@ -381,7 +374,7 @@ pub fn phase_on_disk(directory: &Path) -> Phase {
 pub fn classify(
     code: Option<i32>,
     created: Option<&PlaneCreated>,
-    envelope: Option<&Envelope>,
+    envelope: Option<&ErrorEnvelope>,
     directory_exists: bool,
 ) -> CreateStatus {
     if code == Some(bp::EXIT_OK) && created.is_some_and(|c| !c.interrupted && !c.remnant) {
@@ -446,8 +439,8 @@ mod tests {
         }
     }
 
-    fn envelope(error: &str, code: i32) -> Envelope {
-        Envelope {
+    fn envelope(error: &str, code: i32) -> ErrorEnvelope {
+        ErrorEnvelope {
             error: error.into(),
             code,
             message: "m".into(),
