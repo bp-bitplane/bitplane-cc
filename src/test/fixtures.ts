@@ -1,4 +1,5 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
+import { DEFAULT_BRANCH_INTENT } from "../create-plane/branchIntent";
 import type {
   AgentInfo,
   CreateInfo,
@@ -92,7 +93,7 @@ export function createInfo(id: string, overrides: Partial<CreateInfo> = {}): Cre
       id,
       branch: "feat/x",
       members: [{ spec: "@api", branch: null }],
-      intent: "auto",
+      intent: DEFAULT_BRANCH_INTENT,
       noFetch: false,
       noScripts: false,
     },

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { Envelope, Phase } from "../ipc";
+import type { ErrorEnvelope, Phase } from "../ipc";
 import { cancelCreate, dismissCreate, useStore } from "../store/store";
 import { Centered } from "../ui/Centered";
 import styles from "./CreateProgress.module.css";
@@ -63,12 +63,12 @@ export function CreateProgress({ planeId }: { planeId: string }) {
   );
 }
 
-export function EnvelopeDetails({ envelope }: { envelope: Envelope | null }) {
+export function EnvelopeDetails({ envelope }: { envelope: ErrorEnvelope | null }) {
   if (!envelope) return null;
   return (
     <div className={styles.envelope}>
       <p>{envelope.message}</p>
-      {envelope.problems && envelope.problems.length > 0 && (
+      {envelope.problems.length > 0 && (
         <ul>
           {envelope.problems.map((problem, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: problems have no identity of their own

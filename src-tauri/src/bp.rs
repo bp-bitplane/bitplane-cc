@@ -29,9 +29,10 @@ pub struct Bp {
     pub planes_dir: PathBuf,
 }
 
-/// bp's failure envelope, the last line of stderr.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub struct Envelope {
+/// bp's failure envelope, the last line of stderr. Only the fields the app
+/// reads; the frontend gets the whole type from `bp-contract.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorEnvelope {
     pub error: String,
     pub code: i32,
     pub message: String,
@@ -41,7 +42,7 @@ pub struct Envelope {
     pub remedy: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Problem {
     #[serde(default)]
     pub subject: Option<String>,
@@ -56,7 +57,7 @@ pub struct Output {
     pub stdout: String,
     /// stderr text before the envelope: lock waits and script output.
     pub log: String,
-    pub envelope: Option<Envelope>,
+    pub envelope: Option<ErrorEnvelope>,
 }
 
 /// Why a bp call didn't produce the result the app asked for.
@@ -71,7 +72,7 @@ pub enum BpError {
     /// bp reported a failure.
     Failed {
         code: Option<i32>,
-        envelope: Option<Envelope>,
+        envelope: Option<ErrorEnvelope>,
     },
 }
 
@@ -286,12 +287,12 @@ pub fn format_version((major, minor, patch): (u64, u64, u64)) -> String {
 /// The envelope is on the last line, but script output without a trailing
 /// newline can be glued in front of it, so it starts at the last `{"error":`
 /// on that line.
-pub fn split_stderr(stderr: &str) -> (String, Option<Envelope>) {
+pub fn split_stderr(stderr: &str) -> (String, Option<ErrorEnvelope>) {
     let trimmed = stderr.trim_end_matches(['\n', '\r']);
     let line_start = trimmed.rfind('\n').map_or(0, |i| i + 1);
     let last_line = &trimmed[line_start..];
     if let Some(offset) = last_line.rfind("{\"error\":")
-        && let Ok(envelope) = serde_json::from_str::<Envelope>(&last_line[offset..])
+        && let Ok(envelope) = serde_json::from_str::<ErrorEnvelope>(&last_line[offset..])
     {
         let log = trimmed[..line_start + offset].to_string();
         return (log, Some(envelope));

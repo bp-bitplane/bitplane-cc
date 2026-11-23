@@ -3,6 +3,7 @@
  * current by full-state events, plus UI state that lives only here.
  */
 import { create } from "zustand";
+import { DEFAULT_BRANCH_INTENT } from "../create-plane/branchIntent";
 import {
   type AgentEvent,
   type AgentInfo,
@@ -14,7 +15,7 @@ import {
   commands,
   type DaemonInfo,
   type DaemonStatus,
-  type Envelope,
+  type ErrorEnvelope,
   events,
   type FilesEvent,
   type FileTabsEvent,
@@ -73,7 +74,7 @@ export type TabId = number | FileTabKey;
 export type DiffStyle = "unified" | "split";
 
 export interface CreateFailure {
-  envelope: Envelope | null;
+  envelope: ErrorEnvelope | null;
   /** bp's log, shown for `create_aborted`. */
   log: string | null;
   retryable: boolean;
@@ -544,7 +545,7 @@ export function openDuplicateDialog(plane: PlaneRow): void {
         id: "",
         branch: "",
         members: plane.members.map((spec) => ({ spec, branch: null })),
-        intent: "auto",
+        intent: DEFAULT_BRANCH_INTENT,
         noFetch: false,
         noScripts: false,
       },
