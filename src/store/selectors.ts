@@ -1,4 +1,4 @@
-import type { PlaneRow, SessionInfo } from "../ipc";
+import type { AgentInfo, PlaneRow, SessionInfo } from "../ipc";
 import { type FileTab, fileTabKey } from "../tabs/fileTabs";
 import type { State, TabId } from "./store";
 
@@ -56,9 +56,76 @@ export function shownPlaneId(state: Tabs & Pick<State, "selectedPlaneId">) {
   return activeSession(state, state.selectedPlaneId)?.planeId ?? state.selectedPlaneId;
 }
 
+/** The tab's agent: the one running in it, else the last one that did. */
+export function agentOf(state: Pick<State, "agents">, session: SessionInfo): AgentInfo | undefined {
+  const agents = Object.values(state.agents).filter((a) => a.session === session.key);
+  return agents.find((a) => a.state.kind !== "exited") ?? agents[0];
+}
+
+/**
+ * Whether restarting the tab resumes an agent session. Sessions carry no link
+ * on the wire; the daemon lists the linked agent with the tab (ADR 0031).
+ */
+export function hasAgentLink(state: Pick<State, "agents">, session: SessionInfo): boolean {
+  return Object.values(state.agents).some((a) => a.session === session.key);
+}
+
+/** The tab a live agent session runs in. */
+export function sessionOfAgent(
+  state: Pick<State, "agents" | "sessions">,
+  agentSession: string,
+): SessionInfo | undefined {
+  const agent = state.agents[agentSession];
+  if (!agent || agent.state.kind === "exited" || agent.session === null) return undefined;
+  return Object.values(state.sessions).find((s) => s.key === agent.session);
+}
+
+/** Exited agents whose tab is gone, each with the plane its cwd is in. */
+export function resumableAgents(
+  state: Pick<State, "agents" | "planes">,
+): { agent: AgentInfo; planeId: string }[] {
+  return Object.values(state.agents).flatMap((agent) => {
+    if (agent.state.kind !== "exited" || agent.session !== null) return [];
+    const plane = state.planes.planes.find(
+      (p) =>
+        (p.kind === "plane" || p.kind === "draft") &&
+        (agent.cwd === p.directory || agent.cwd.startsWith(`${p.directory}/`)),
+    );
+    return plane ? [{ agent, planeId: plane.id }] : [];
+  });
+}
+
+/** What a tab's agent is doing, in words; `null` for a state this build doesn't know. */
+export function agentStateLabel(agent: AgentInfo): string | null {
+  switch (agent.state.kind) {
+    case "idle":
+      return "idle";
+    case "busy":
+      return "busy";
+    case "waiting":
+      return agent.state.reason === "permission"
+        ? "waiting for permission"
+        : agent.state.reason === "input"
+          ? "waiting for input"
+          : "waiting";
+    case "resuming":
+      return "resuming";
+    case "exited":
+      return "exited";
+    default:
+      return null;
+  }
+}
+
 /** `N · title`, N being the tab's position (spec §4.2). */
 export function tabLabel(session: SessionInfo, position: number): string {
   return `${position} · ${sessionTitle(session)}`;
+}
+
+/** The tab's label with the program's title beside a named tab's name. */
+export function tabTooltip(session: SessionInfo, position: number): string {
+  const title = programTitle(session);
+  return title ? `${tabLabel(session, position)} — ${title}` : tabLabel(session, position);
 }
 
 /** The user's name for the tab, else the program's title, else the shell. */

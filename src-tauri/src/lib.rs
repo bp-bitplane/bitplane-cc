@@ -14,8 +14,8 @@ pub mod files_watch;
 pub mod git;
 pub mod git_cli;
 pub mod git_watch;
-pub mod hooks;
 pub mod ipc;
+pub mod migrate;
 pub mod persist;
 pub mod planes;
 pub mod sessions;
@@ -23,15 +23,15 @@ pub mod sessions;
 use std::sync::Arc;
 
 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
-use tauri::{Manager, RunEvent, Runtime};
+use tauri::{Manager, RunEvent, Runtime, Url};
 use tauri_plugin_window_state::StateFlags;
 use tauri_specta::Event;
 
 use crate::app::{App, DataDir, Emitters};
 use crate::daemon::DaemonLink;
 use crate::ipc::{
-    CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged, PlanesChanged, SessionChanged,
-    SourceControlChanged,
+    AgentChanged, AgentKindsChanged, CreateChanged, DaemonChanged, FileTabsChanged, FilesChanged,
+    PlanesChanged, SessionChanged, SourceControlChanged,
 };
 
 /// Where tauri-specta writes the TypeScript bindings.
@@ -45,6 +45,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(navigation_guard())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::SIZE | StateFlags::POSITION)
@@ -76,6 +78,18 @@ pub fn run() {
                     let handle = handle.clone();
                     Arc::new(move |event| {
                         let _ = SessionChanged(event).emit(&handle);
+                    })
+                },
+                agent: {
+                    let handle = handle.clone();
+                    Arc::new(move |event| {
+                        let _ = AgentChanged(event).emit(&handle);
+                    })
+                },
+                agent_kinds: {
+                    let handle = handle.clone();
+                    Arc::new(move |kinds| {
+                        let _ = AgentKindsChanged(kinds).emit(&handle);
                     })
                 },
                 create: {
@@ -116,7 +130,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 daemon.start();
                 app.start();
-                app.refresh().await;
+                tokio::join!(app.refresh(), app.import_legacy());
             });
             Ok(())
         })
@@ -131,6 +145,24 @@ pub fn run() {
                 app.creates.interrupt_all();
             }
         });
+}
+
+/// Keep the window on cc's own page: terminal output is untrusted, and its
+/// links open in the browser instead.
+fn navigation_guard<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("navigation-guard")
+        .on_navigation(|webview, url| {
+            let config = webview.app_handle().config();
+            let dev_url = config.build.dev_url.as_ref().filter(|_| cfg!(dev));
+            is_app_page(url, dev_url)
+        })
+        .build()
+}
+
+fn is_app_page(url: &Url, dev_url: Option<&Url>) -> bool {
+    url.scheme() == "tauri"
+        || url.host_str() == Some("tauri.localhost")
+        || dev_url.is_some_and(|dev| dev.origin() == url.origin())
 }
 
 /// Tauri puts the sidecar next to cc's own executable, in a bundle and in

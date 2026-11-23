@@ -27,6 +27,7 @@
     "@pierre/trees": "1.0.0-beta.6",
     "@tauri-apps/api": "2.12.1",
     "@tauri-apps/plugin-dialog": "2.8.1",
+    "@tauri-apps/plugin-opener": "2.7.3",
     "@wterm/core": "0.5.4",
     "@wterm/dom": "0.5.4",
     "@wterm/ghostty": "0.5.4",

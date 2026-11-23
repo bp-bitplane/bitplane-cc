@@ -9,11 +9,13 @@ import {
   findPlane,
   programTitle,
   sessionsOf,
+  sessionTitle,
   tabLabel,
+  tabTooltip,
 } from "../store/selectors";
 import {
   closeFileTab,
-  openSession,
+  openLauncher,
   pinFileTab,
   renameSession,
   requestCloseSession,
@@ -22,11 +24,17 @@ import {
   useStore,
 } from "../store/store";
 import { fileTabKey, fileTabTitle, folderOf, folderSuffixes } from "./fileTabs";
+import { SessionSlot, useNumbersShown } from "./SessionSlot";
 import styles from "./TabBar.module.css";
 
-/** The selected plane's Session tabs, numbered by position, then its File tabs. */
+/**
+ * The selected plane's Session tabs, each with its kind's icon, then its File
+ * tabs. Holding the tab-switching modifier shows each Session tab's number in
+ * place of its icon.
+ */
 export function TabBar({ planeId }: { planeId: string }) {
   const platform = useStore((s) => s.platform);
+  const numbered = useNumbersShown(platform);
   const sessions = useStore(useShallow((s) => sessionsOf(s, planeId)));
   const fileTabs = useStore((s) => fileTabsOf(s, planeId));
   const current = useStore((s) => activeTabId(s, planeId));
@@ -47,6 +55,7 @@ export function TabBar({ planeId }: { planeId: string }) {
           session={session}
           position={index + 1}
           active={session.id === current}
+          numbered={numbered}
         />
       ))}
       {fileTabs.map((tab) => {
@@ -93,7 +102,7 @@ export function TabBar({ planeId }: { planeId: string }) {
         title={`New session (${labelFor(platform, "newTab")})`}
         aria-label="New session"
         tabIndex={-1}
-        onClick={() => void openSession(planeId)}
+        onClick={() => openLauncher(planeId)}
       >
         <Plus size={15} />
       </button>
@@ -101,15 +110,17 @@ export function TabBar({ planeId }: { planeId: string }) {
   );
 }
 
-/** A Session tab; double-clicking its label renames it (`session.rename`). */
+/** A Session tab and its agent's state; double-clicking its label renames it (`session.rename`). */
 function SessionTab({
   session,
   position,
   active,
+  numbered,
 }: {
   session: SessionInfo;
   position: number;
   active: boolean;
+  numbered: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   // An input removed while focused may still blur; only the first finish counts.
@@ -125,6 +136,12 @@ function SessionTab({
 
   return (
     <div className={`${styles.tab} ${active ? styles.active : ""}`}>
+      <SessionSlot
+        session={session}
+        position={position}
+        numbered={numbered}
+        className={styles.slot}
+      />
       {editing ? (
         <input
           className={styles.rename}
@@ -146,7 +163,7 @@ function SessionTab({
           aria-selected={active}
           aria-label={label}
           className={styles.label}
-          title={title ? `${label} — ${title}` : label}
+          title={tabTooltip(session, position)}
           tabIndex={-1}
           onClick={() => selectSession(session.planeId, session.id)}
           onDoubleClick={() => {
@@ -154,7 +171,7 @@ function SessionTab({
             setEditing(true);
           }}
         >
-          {label}
+          {sessionTitle(session)}
           {title && <span className={styles.suffix}>{title}</span>}
         </button>
       )}

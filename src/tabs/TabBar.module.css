@@ -111,3 +111,7 @@
   border: 1px solid var(--accent);
   border-radius: 3px;
 }
+
+.slot {
+  margin-left: 4px;
+}

@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
 tauri-plugin-window-state = "2"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
@@ -26,9 +27,9 @@ notify-debouncer-mini = "0.7"
 tokio = { version = "1", features = ["process", "time", "sync", "macros", "rt-multi-thread", "io-util"] }
 libc = "0.2"
 toml = "1"
-bitplane-protocol = { git = "https://github.com/bp-bitplane/bitplane-protocol", rev = "d2b9974dd8857c4d6952cee3352a1d3e40ec6426" }
+bitplane-protocol = { git = "https://github.com/bp-bitplane/bitplane-protocol", rev = "d0a2b660efca22f13cc6dbf73342786bff41b701" }
 # Also the rev scripts/build-sidecar.sh bundles, so cc's client and its daemon match.
-bitplane-sessiond = { git = "https://github.com/bp-bitplane/bitplane-sessiond", rev = "75463a749b7cca71d674e9058f4cd54ee2df2595" }
+bitplane-sessiond = { git = "https://github.com/bp-bitplane/bitplane-sessiond", rev = "df911de06be6f429e2f603f96494a34874f43aa2" }
 
 [dev-dependencies]
 tempfile = "3"

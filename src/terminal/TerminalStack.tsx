@@ -5,6 +5,8 @@ import { useShallow } from "zustand/react/shallow";
 import { commands, ptyWrite, type SessionInfo } from "../ipc";
 import { findPlane } from "../store/selectors";
 import { closeSession, restartSession, useStore } from "../store/store";
+import { AgentOverlay, agentOverlaid } from "./AgentOverlay";
+import { openClickedLink } from "./links";
 import { attachTerminal, disposeTerminal, terminalCore } from "./registry";
 import styles from "./TerminalStack.module.css";
 
@@ -33,16 +35,18 @@ function TerminalPane({ session, visible }: { session: SessionInfo; visible: boo
   const core = useCore(session.id);
   const ref = useRef<TerminalHandle>(null);
   const id = session.id;
+  const overlaid = agentOverlaid(session);
 
   useEffect(() => {
-    if (visible && core) ref.current?.focus();
-  }, [visible, core]);
+    if (visible && core && !overlaid) ref.current?.focus();
+  }, [visible, core, overlaid]);
 
   return (
     <section
       className={`${styles.pane} ${visible ? styles.visible : ""}`}
       aria-hidden={!visible}
       data-session={id}
+      onClickCapture={(event) => openClickedLink(event, core)}
     >
       {core && (
         <Terminal
@@ -55,12 +59,16 @@ function TerminalPane({ session, visible }: { session: SessionInfo; visible: boo
           onResize={(cols, rows) => void commands.ptyResize(id, cols, rows).catch(() => undefined)}
           onReady={(term) => {
             if (ref.current) attachTerminal(id, ref.current, term.cols, term.rows);
-            if (visible) ref.current?.focus();
+            if (visible && !overlaid) ref.current?.focus();
           }}
           onError={(error) => console.error(`terminal ${id}:`, error)}
         />
       )}
-      {session.status.kind !== "running" && <ExitedBar session={session} />}
+      {session.agent !== null ? (
+        <AgentOverlay session={session} visible={visible} />
+      ) : (
+        session.status.kind !== "running" && <ExitedBar session={session} />
+      )}
     </section>
   );
 }
